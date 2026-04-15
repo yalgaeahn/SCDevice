@@ -1,0 +1,8 @@
+.klayout-python.info
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+tmp/
