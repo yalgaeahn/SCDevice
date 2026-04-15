@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Open in KLayout",
+      "type": "shell",
+      "command": "/usr/bin/klayout",
+      "args": [
+        "-e",
+        "-rm",
+        "${workspaceFolder}/util/create_element_from_path.py",
+        "-rd",
+        "element_path=${relativeFile}"
+      ],
+      "windows": {
+        "command": "${env:APPDATA}\\KLayout\\klayout_app.exe",
+        "options": {
+          "shell": {
+            "executable": "powershell.exe"
+          }
+        }
+      },
+      "osx": {
+        "command": "/Applications/klayout.app/Contents/MacOS/klayout"
+        // Homebrew install이면 아래 경로로 바꿔서 써도 됨
+        // "command": "/Applications/KLayout/klayout.app/Contents/MacOS/klayout"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

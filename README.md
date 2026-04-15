@@ -5,18 +5,19 @@ Umbrella repository for local SCDevice work built on top of `KQCircuits`.
 ## Layout
 
 - `KQCircuits/`: upstream-derived code tracked as a git submodule
-- `scdevice_pcells/`: SCDevice-specific external PCells loaded through `KQC_EXTRA_SRC_PATHS`
+- `scdevice_pcells/`: SCDevice-specific external PCells auto-detected in the standard layout
 
 ## Setup
 
-Initialize the submodule and expose the external PCell package before running KQCircuits tooling:
+Initialize the submodule before running KQCircuits tooling:
 
 ```bash
 git submodule update --init --recursive
-export KQC_EXTRA_SRC_PATHS="$PWD/scdevice_pcells"
 ```
 
-With that environment variable set, `KQCircuits/util/create_element_from_path.py` accepts:
+In the standard `SCDevice/KQCircuits` layout, `scdevice_pcells/` is auto-detected. `KQC_EXTRA_SRC_PATHS` is only needed for additional non-standard external packages.
+
+With that default layout, `KQCircuits/util/create_element_from_path.py` accepts:
 
 - built-in relative paths such as `kqcircuits/chips/demo.py`
 - external relative paths such as `scdevice_pcells/chips/sqnl_launchers.py`
