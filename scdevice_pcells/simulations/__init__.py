@@ -1,0 +1,1 @@
+"""SCDevice-specific simulation definitions."""

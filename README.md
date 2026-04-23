@@ -21,7 +21,7 @@ The practical consequence is that `KQCircuits` and `SCDevice` are committed sepa
 ## Layout
 
 - `KQCircuits/`: upstream-derived framework code tracked as a Git submodule
-- `scdevice_pcells/`: SCDevice-specific external PCells auto-detected in the standard layout
+- `scdevice_pcells/`: SCDevice-specific external code such as chips, qubits, and simulations auto-detected in the standard layout
 - `util/create_element_from_path.py`: top-level compatibility wrapper used by the VSCode KLayout task
 
 ## Setup
@@ -85,7 +85,7 @@ Important notes:
 
 Use the repository like this during development:
 
-- edit `scdevice_pcells/` for project-specific chips and qubits
+- edit `scdevice_pcells/` for project-specific chips, qubits, and simulations
 - edit `KQCircuits/` only for upstream-derived framework changes or loader/tooling changes
 - open `SCDevice/` as the workspace root so the VSCode task paths match the repository layout
 
