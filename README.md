@@ -89,6 +89,35 @@ Use the repository like this during development:
 - edit `KQCircuits/` only for upstream-derived framework changes or loader/tooling changes
 - open `SCDevice/` as the workspace root so the VSCode task paths match the repository layout
 
+### Simulation Export Temp Path
+
+KQCircuits writes generated masks and simulation export outputs under `KQC_TMP_PATH`. If `KQC_TMP_PATH` is not set, KQCircuits falls back to the default `tmp` directory derived from its `ROOT_PATH`.
+
+For this repository, the recommended local export base is:
+
+```text
+C:\Users\user\JSAHN\SCDevice\tmp
+```
+
+This keeps generated files outside the `KQCircuits` submodule and inside the top-level `SCDevice/tmp` directory, which is already ignored by git.
+
+For a one-off PowerShell session:
+
+```powershell
+New-Item -ItemType Directory -Force "C:\Users\user\JSAHN\SCDevice\tmp"
+$env:KQC_TMP_PATH = "C:\Users\user\JSAHN\SCDevice\tmp"
+```
+
+To persist the setting for future terminals and GUI tools:
+
+```powershell
+[Environment]::SetEnvironmentVariable("KQC_TMP_PATH", "C:\Users\user\JSAHN\SCDevice\tmp", "User")
+```
+
+After changing the persistent environment variable, restart VSCode, KLayout, Ansys, or any terminal that launches the export flow.
+
+Editing `KQCircuits/klayout_package/python/kqcircuits/defaults.py` directly is the fastest local override, but it makes the `KQCircuits` submodule dirty and can create extra work when updating from upstream. Prefer `KQC_TMP_PATH` unless the default behavior needs to be changed for this checkout intentionally.
+
 ### `create_element_from_path` Usage
 
 In the standard `SCDevice/KQCircuits` layout, `scdevice_pcells/` is auto-detected. You do not need `KQC_EXTRA_SRC_PATHS` for the built-in sibling package layout.
