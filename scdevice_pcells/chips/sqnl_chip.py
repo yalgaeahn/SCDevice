@@ -62,6 +62,25 @@ class SqnlSingle(Chip):
     readout_res_lengths = Param(
         pdt.TypeList, "Readout resonator lengths (six resonators)", [5000, 5100, 5200, 5300, 5400, 5500]
     )
+    readout_coupling_lengths = Param(
+        pdt.TypeList, "Readout resonator feedline coupling lengths (six resonators)", [400] * 6
+    )
+    readout_feedline_gap = Param(
+        pdt.TypeDouble,
+        "Centerline distance between feedline and readout resonator coupling section",
+        27,
+        unit="um",
+    )
+    readout_turn_radius = Param(pdt.TypeDouble, "Readout resonator turn radius", 50, unit="um")
+    readout_meander_width = Param(pdt.TypeDouble, "Minimum readout resonator meander width", 350, unit="um")
+    feedline_y = Param(pdt.TypeDouble, "Feedline horizontal centerline y-coordinate", 5000, unit="um")
+    feedline_x_distance = Param(
+        pdt.TypeDouble,
+        "Horizontal launcher escape distance before routing to the feedline",
+        1200,
+        unit="um",
+    )
+    use_readout_resonators = Param(pdt.TypeBoolean, "Place readout resonators", True)
     use_qubits = Param(pdt.TypeBoolean, "Place qubits", False)
     use_test_resonators = Param(pdt.TypeBoolean, "Use test resonators", False)
     test_res_lengths = Param(pdt.TypeList, "Test resonator lengths (four resonators)", [5200, 5400, 5600, 5800])
@@ -80,23 +99,24 @@ class SqnlSingle(Chip):
         self.name_copy = "KAIST"
         self.name_brand = "SQNL"
 
-        #self.produce_junction_tests(self.junction_type)
-        #self.launchers = self.produce_launchers("SMA8")
+        # self.produce_junction_tests(self.junction_type)
+        # self.launchers = self.produce_launchers("SMA8")
         self.launchers = self._produce_launchers()
         self.qubits_refpoints = ()
-        self._produce_readout_resonators()
 
-        
-        feedline_x_distance = 1200
+        if self.use_qubits or self.use_readout_resonators or self.use_test_resonators:
+            self.qubits_refpoints = self._produce_qubits()
+
+        if self.use_readout_resonators:
+            self._produce_readout_resonators()
+
+        feedline_x_distance = float(self.feedline_x_distance)
         if self.use_test_resonators:
             self._produce_feedline_and_test_resonators(feedline_x_distance)
         else:
             self._produce_feedline(feedline_x_distance)
 
-
-
         if self.use_qubits:
-            self.qubits_refpoints = self._produce_qubits()
             self._produce_chargelines()
 
     def _produce_launchers(self):
@@ -191,18 +211,18 @@ class SqnlSingle(Chip):
         qubit = self.add_element(
             DoublePadsSQNL,
             junction_type=self.junction_type,
-            drive_position=[-450,0]
+            drive_position=[-450, 0],
         )
         qubit_spacing_x = 1100  # shortest x-distance between qubit centers on different sides of the feedline
         qubit_spacing_y = 2600  # shortest y-distance between qubit centers on different sides of the feedline
         qubits_center_x = 5e3 + 400  # the x-coordinate around which qubits are centered
         # qubits above the feedline, from left to right
-        y_a = 5e3 + qubit_spacing_y / 2
+        y_a = float(self.feedline_y) + qubit_spacing_y / 2
         qb0_refpoints = self._produce_qubit(qubit, qubits_center_x - qubit_spacing_x * (3 / 2), y_a, 2, "qb_0")
         qb1_refpoints = self._produce_qubit(qubit, qubits_center_x + qubit_spacing_x / 2, y_a, 2, "qb_1")
         qb2_refpoints = self._produce_qubit(qubit, qubits_center_x + qubit_spacing_x * (5 / 2) - 200, y_a, 2, "qb_2")
         # qubits below the feedline, from left to right
-        y_b = 5e3 - qubit_spacing_y / 2
+        y_b = float(self.feedline_y) - qubit_spacing_y / 2
         qb3_refpoints = self._produce_qubit(qubit, qubits_center_x - qubit_spacing_x * (5 / 2), y_b, 0, "qb_3")
         qb4_refpoints = self._produce_qubit(qubit, qubits_center_x - qubit_spacing_x * (1 / 2), y_b, 0, "qb_4")
         qb5_refpoints = self._produce_qubit(qubit, qubits_center_x + qubit_spacing_x * (3 / 2), y_b, 0, "qb_5")
@@ -227,11 +247,15 @@ class SqnlSingle(Chip):
             factor = 1
         else:
             factor = -1
-        turn_radius = 50
-        distance_to_feedline = 27
-        feedline_coupling_y = 5e3 + factor * distance_to_feedline
+        turn_radius = float(self.readout_turn_radius)
+        distance_to_feedline = float(self.readout_feedline_gap)
+        feedline_y = float(self.feedline_y)
+        feedline_coupling_y = feedline_y + factor * distance_to_feedline
         meander_start_x = pos_start.x - (coupling_length + 2 * turn_radius)
-        meander_start = pya.DPoint(meander_start_x, 5e3 + factor * distance_to_feedline + factor * 2 * turn_radius)
+        meander_start = pya.DPoint(
+            meander_start_x,
+            feedline_y + factor * distance_to_feedline + factor * 2 * turn_radius,
+        )
         # non-meandering part of the resonator
         coupler_waveguide = self._produce_waveguide(
             [
@@ -245,7 +269,7 @@ class SqnlSingle(Chip):
         len_coupler = coupler_waveguide.length()
         # meandering part of the resonator
         meander_length = total_length - len_coupler
-        w = 350
+        w = float(self.readout_meander_width)
         num_meanders = _get_num_meanders(meander_length, turn_radius, w)
         self.insert_cell(
             Meander,
@@ -259,12 +283,15 @@ class SqnlSingle(Chip):
     def _produce_readout_resonators(self):
         """Produces readout resonators for all the qubits in a SingleXmons chip."""
         readout_res_lengths = [float(length) for length in self.readout_res_lengths]  # from strings to floats
-        self._produce_readout_resonator(readout_res_lengths[0], 400, self.qubits_refpoints[0]["port_cplr"], True)
-        self._produce_readout_resonator(readout_res_lengths[1], 400, self.qubits_refpoints[1]["port_cplr"], True)
-        self._produce_readout_resonator(readout_res_lengths[2], 400, self.qubits_refpoints[2]["port_cplr"], True)
-        self._produce_readout_resonator(readout_res_lengths[3], 400, self.qubits_refpoints[3]["port_cplr"], False)
-        self._produce_readout_resonator(readout_res_lengths[4], 400, self.qubits_refpoints[4]["port_cplr"], False)
-        self._produce_readout_resonator(readout_res_lengths[5], 400, self.qubits_refpoints[5]["port_cplr"], False)
+        coupling_lengths = [float(length) for length in self.readout_coupling_lengths]
+        above_feedline = [True, True, True, False, False, False]
+        for index, is_above in enumerate(above_feedline):
+            self._produce_readout_resonator(
+                readout_res_lengths[index],
+                coupling_lengths[index],
+                self.qubits_refpoints[index]["port_cplr"],
+                is_above,
+            )
 
     def _produce_chargeline(self, pos_launcher, pos_port_drive, y_distance):
         """Produces a chargeline from a launcher to a qubit.
@@ -340,12 +367,13 @@ class SqnlSingle(Chip):
                 clear from the junction test pads.
 
         """
+        feedline_y = float(self.feedline_y)
         self._produce_waveguide(
             [
                 self.launchers["WN"][0],
                 pya.DPoint(self.launchers["WN"][0].x + x_distance, self.launchers["WN"][0].y),
-                pya.DPoint(self.launchers["WN"][0].x + x_distance, 5e3),
-                pya.DPoint(self.launchers["ES"][0].x - x_distance, 5e3),
+                pya.DPoint(self.launchers["WN"][0].x + x_distance, feedline_y),
+                pya.DPoint(self.launchers["ES"][0].x - x_distance, feedline_y),
                 pya.DPoint(self.launchers["ES"][0].x - x_distance, self.launchers["ES"][0].y),
                 self.launchers["ES"][0],
             ]
@@ -365,11 +393,20 @@ class SqnlSingle(Chip):
 
         """
         x_offset = -700
+        feedline_y = float(self.feedline_y)
         test_resonator_positions = [
-            pya.DPoint((self.qubits_refpoints[3]["base"].x + self.qubits_refpoints[4]["base"].x) / 2 + x_offset, 5e3),
-            pya.DPoint((self.qubits_refpoints[1]["base"].x + self.qubits_refpoints[0]["base"].x) / 2 + x_offset, 5e3),
-            pya.DPoint((self.qubits_refpoints[5]["base"].x + self.qubits_refpoints[4]["base"].x) / 2 + x_offset, 5e3),
-            pya.DPoint((self.qubits_refpoints[2]["base"].x + self.qubits_refpoints[1]["base"].x) / 2 + x_offset, 5e3),
+            pya.DPoint(
+                (self.qubits_refpoints[3]["base"].x + self.qubits_refpoints[4]["base"].x) / 2 + x_offset, feedline_y
+            ),
+            pya.DPoint(
+                (self.qubits_refpoints[1]["base"].x + self.qubits_refpoints[0]["base"].x) / 2 + x_offset, feedline_y
+            ),
+            pya.DPoint(
+                (self.qubits_refpoints[5]["base"].x + self.qubits_refpoints[4]["base"].x) / 2 + x_offset, feedline_y
+            ),
+            pya.DPoint(
+                (self.qubits_refpoints[2]["base"].x + self.qubits_refpoints[1]["base"].x) / 2 + x_offset, feedline_y
+            ),
         ]
 
         # feedline couplings with test resonators
@@ -406,7 +443,7 @@ class SqnlSingle(Chip):
             [
                 self.launchers["WN"][0],
                 pya.DPoint(self.launchers["WN"][0].x + x_distance, self.launchers["WN"][0].y),
-                pya.DPoint(self.launchers["WN"][0].x + x_distance, 5e3),
+                pya.DPoint(self.launchers["WN"][0].x + x_distance, feedline_y),
                 self.get_refpoints(cell_cross, inst_crosses[0].dtrans)["port_left"],
             ]
         )
@@ -431,7 +468,7 @@ class SqnlSingle(Chip):
         self._produce_waveguide(
             [
                 self.get_refpoints(cell_cross, inst_crosses[3].dtrans)["port_left"],
-                pya.DPoint(self.launchers["ES"][0].x - x_distance, 5e3),
+                pya.DPoint(self.launchers["ES"][0].x - x_distance, feedline_y),
                 pya.DPoint(self.launchers["ES"][0].x - x_distance, self.launchers["ES"][0].y),
                 self.launchers["ES"][0],
             ]

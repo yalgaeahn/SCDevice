@@ -27,10 +27,11 @@ from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
 from kqcircuits.simulations.port import EdgePort, InternalPort
 from kqcircuits.elements.element import get_refpoints
-from kqcircuits.util.export_helper import create_or_empty_tmp_directory, open_with_klayout_or_default_application
+from kqcircuits.util.export_helper import open_with_klayout_or_default_application
 
 from scdevice_pcells.chips.sqnl_chip import SqnlSingle
 from scdevice_pcells.simulations.ansys_batch import SIMULATION_BATCH_FILENAME, configure_ansys_batch
+from scdevice_pcells.simulations.export_paths import create_or_empty_scdevice_tmp_directory
 
 
 LAUNCHER_NAMES = ["NW", "WN", "WS", "SW", "SE", "ES", "EN", "NE"]
@@ -47,6 +48,13 @@ def build_sqnl_cell(layout, use_test_resonators=False):
         name_mask="SQNL",
         name_copy=None,
         readout_res_lengths=[5000, 5100, 5200, 5300, 5400, 5500],
+        readout_coupling_lengths=[400] * 6,
+        readout_feedline_gap=27,
+        readout_turn_radius=50,
+        readout_meander_width=350,
+        feedline_y=5000,
+        feedline_x_distance=1200,
+        use_readout_resonators=True,
         test_res_lengths=[5200, 5400, 5600, 5800],
         n_fingers=[4, 4, 2, 4],
         l_fingers=[23.1, 9.9, 14.1, 10],
@@ -145,7 +153,7 @@ def main():
     export_path = (
         args.export_dir
         if args.export_dir is not None
-        else create_or_empty_tmp_directory(Path(__file__).stem + f"_{args.ansys_tool}")
+        else create_or_empty_scdevice_tmp_directory(Path(__file__).stem + f"_{args.ansys_tool}")
     )
     if args.export_dir is not None:
         export_path.mkdir(parents=True, exist_ok=True)
@@ -188,7 +196,8 @@ def main():
 
     if args.smoke_check:
         run_smoke_check(simulation, refpoints, export_path)
-        alternate_cell = build_sqnl_cell(pya.Layout(), use_test_resonators=not args.use_test_resonators)
+        alternate_layout = pya.Layout()
+        alternate_cell = build_sqnl_cell(alternate_layout, use_test_resonators=not args.use_test_resonators)
         alternate_refpoints = get_cell_refpoints(alternate_cell)
         assert "WN_port" in alternate_refpoints and "ES_port" in alternate_refpoints
 

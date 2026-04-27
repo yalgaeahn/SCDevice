@@ -27,7 +27,6 @@ from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
 from kqcircuits.simulations.single_element_simulation import get_single_element_sim_class
 from kqcircuits.util.export_helper import (
-    create_or_empty_tmp_directory,
     get_active_or_new_layout,
     open_with_klayout_or_default_application,
 )
@@ -35,6 +34,7 @@ from scdevice_pcells.junctions import SQNL_MANHATTAN_SINGLE_JUNCTION
 from scdevice_pcells.qubits.double_pads_sqnl import DoublePadsSQNL
 
 from scdevice_pcells.simulations.ansys_batch import configure_ansys_batch
+from scdevice_pcells.simulations.export_paths import create_or_empty_scdevice_tmp_directory
 
 
 sim_tools = ["eigenmode", "q3d"]
@@ -52,7 +52,7 @@ for sim_tool in sim_tools:
         "waveguide_length": 200,
     }
 
-    dir_path = create_or_empty_tmp_directory(Path(__file__).stem + f"_output_{sim_tool}")
+    dir_path = create_or_empty_scdevice_tmp_directory(Path(__file__).stem + f"_output_{sim_tool}")
 
     export_parameters_ansys = (
         {
