@@ -61,6 +61,7 @@ class SqnlSingle(Chip):
     readout_res_lengths = Param(
         pdt.TypeList, "Readout resonator lengths (six resonators)", [5000, 5100, 5200, 5300, 5400, 5500]
     )
+    use_qubits = Param(pdt.TypeBoolean, "Place qubits", False)
     use_test_resonators = Param(pdt.TypeBoolean, "Use test resonators", False)
     test_res_lengths = Param(pdt.TypeList, "Test resonator lengths (four resonators)", [5200, 5400, 5600, 5800])
     n_fingers = Param(pdt.TypeList, "Number of fingers for test resonator couplers", [4, 4, 2, 4])
@@ -81,16 +82,21 @@ class SqnlSingle(Chip):
         #self.produce_junction_tests(self.junction_type)
         #self.launchers = self.produce_launchers("SMA8")
         self.launchers = self._produce_launchers()
-        self.qubits_refpoints = self._produce_qubits()
+        self.qubits_refpoints = ()
+        self._produce_readout_resonators()
 
+        
         feedline_x_distance = 1200
         if self.use_test_resonators:
             self._produce_feedline_and_test_resonators(feedline_x_distance)
         else:
             self._produce_feedline(feedline_x_distance)
 
-        self._produce_readout_resonators()
-        self._produce_chargelines()
+
+
+        if self.use_qubits:
+            self.qubits_refpoints = self._produce_qubits()
+            self._produce_chargelines()
 
     def _produce_launchers(self):
         return self.produce_n_launchers(
