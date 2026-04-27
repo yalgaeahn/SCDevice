@@ -176,6 +176,8 @@ git commit -m "Describe SCDevice change"
 git push -u origin main
 ```
 
+The order matters. If you changed `KQCircuits`, push that repository first. Only after the exact `KQCircuits` commit exists on your fork should you update and push the `SCDevice` submodule pointer.
+
 User PCell changes should stay in `scdevice_pcells/` so upstream KQCircuits updates do not overwrite them.
 
 ## Troubleshooting
@@ -222,8 +224,43 @@ git push -u origin main
 
 ### `KQCircuits/` Looks Empty After Clone
 
+If `KQCircuits/` is empty or missing expected files right after `git clone`, the submodule working tree has not been initialized yet.
+
 Initialize the submodule:
 
 ```bash
 git submodule update --init --recursive
 ```
+
+Verify the checkout:
+
+```bash
+git submodule status
+ls KQCircuits
+```
+
+Healthy output should show a commit hash for `KQCircuits` in `git submodule status`, and `ls KQCircuits` should show files such as `README.rst` and `klayout_package`.
+
+### `Direct fetching of that commit failed`
+
+This means submodule initialization started, but `SCDevice` points to an exact `KQCircuits` commit that your current machine cannot fetch from the remote fork.
+
+`SCDevice` stores a submodule pointer, which is a specific `KQCircuits` commit hash, not just a branch name. Another machine can only check out `KQCircuits/` if that exact commit exists on the fork configured as the submodule remote.
+
+Common causes:
+
+- `KQCircuits` was committed locally but never pushed to your fork
+- `SCDevice` was pushed after recording a submodule pointer to a local-only `KQCircuits` commit
+
+Recovery path 1: the missing `KQCircuits` commit still exists on another machine.
+
+- on the machine that still has the commit, go into `KQCircuits/`
+- push the commit to your fork
+- on the new machine, rerun `git submodule update --init --recursive`
+
+Recovery path 2: the missing commit is gone and cannot be pushed anymore.
+
+- on a machine with a valid `KQCircuits` checkout, move `KQCircuits/` to a real commit that exists on your fork
+- from `SCDevice/`, run `git add KQCircuits`
+- commit and push the updated `SCDevice` submodule pointer
+- on the new machine, run `git pull` and then `git submodule update --init --recursive`
