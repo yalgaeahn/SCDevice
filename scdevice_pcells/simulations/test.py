@@ -26,7 +26,6 @@ import numpy as np
 
 from kqcircuits.defaults import ANSYS_EXECUTABLE
 from kqcircuits.pya_resolver import pya
-from kqcircuits.qubits.double_pads import DoublePads
 from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
 from kqcircuits.simulations.single_element_simulation import get_single_element_sim_class
@@ -35,6 +34,8 @@ from kqcircuits.util.export_helper import (
     get_active_or_new_layout,
     open_with_klayout_or_default_application,
 )
+from scdevice_pcells.junctions import SQNL_MANHATTAN_SINGLE_JUNCTION
+from scdevice_pcells.qubits.double_pads_sqnl import DoublePadsSQNL
 
 
 LOCAL_ANSYS_HELPER_DIR = Path(__file__).with_name("ansys_local")
@@ -126,7 +127,7 @@ def _configure_ansys_batch(path: Path, simulations, sim_tool: str):
 sim_tools = ["eigenmode", "q3d"]
 
 for sim_tool in sim_tools:
-    SimClass = get_single_element_sim_class(DoublePads)
+    SimClass = get_single_element_sim_class(DoublePadsSQNL)
     sim_parameters = {
         "name": "double_pads",
         "use_internal_ports": True,
@@ -142,7 +143,7 @@ for sim_tool in sim_tools:
 
     export_parameters_ansys = (
         {
-            "percent_error": 0.2,
+            "percent_error": 1.0,
             "maximum_passes": 18,
             "minimum_passes": 2,
             "minimum_converged_passes": 2,
@@ -191,7 +192,7 @@ for sim_tool in sim_tools:
                     "island1_taper_width": island1_taper_width,
                     "island2_taper_width": island2_taper_width,
                     "coupler_offset": 100,
-                    "junction_type": "Manhattan",
+                    "junction_type": SQNL_MANHATTAN_SINGLE_JUNCTION,
                     "island2_taper_junction_width": 31.7,
                     "junction_total_length": 39.5,
                     "name": f"{name}_coupler_width_{round(coupler_width)}",

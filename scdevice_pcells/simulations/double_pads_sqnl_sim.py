@@ -1,4 +1,4 @@
-"""Simulation helpers for the spline-based SCDevice double-pads qubit."""
+"""Simulation helpers for the SCDevice double-pads qubit."""
 
 from kqcircuits.simulations.single_element_simulation import get_single_element_sim_class
 

@@ -31,6 +31,7 @@ from kqcircuits.pya_resolver import pya
 from kqcircuits.util.coupler_lib import cap_params
 from kqcircuits.util.parameters import Param, pdt, add_parameters_from
 from kqcircuits.junctions.junction import Junction
+from scdevice_pcells.junctions import SQNL_MANHATTAN_SINGLE_JUNCTION
 
 
 def _get_num_meanders(meander_length, turn_radius, meander_min_width):
@@ -39,7 +40,7 @@ def _get_num_meanders(meander_length, turn_radius, meander_min_width):
     return int((meander_length - turn_radius * (pi - 2)) / (meander_min_width + turn_radius * (pi - 2)))
 
 
-@add_parameters_from(Junction, junction_type="Manhattan Single Junction")
+@add_parameters_from(Junction, junction_type=SQNL_MANHATTAN_SINGLE_JUNCTION)
 class SqnlSingle(Chip):
     """The PCell declaration for a SingleXmons chip.
 
