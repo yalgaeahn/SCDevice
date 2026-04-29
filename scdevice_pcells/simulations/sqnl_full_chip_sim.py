@@ -121,6 +121,7 @@ def run_smoke_check(simulation, refpoints, export_path):
     for qubit_index in range(6):
         assert f"qb_{qubit_index}_port_squid_a" in refpoints
         assert f"qb_{qubit_index}_port_squid_b" in refpoints
+        assert f"readout_{qubit_index}_short" in refpoints
 
     edge_ports = [port for port in simulation.ports if isinstance(port, EdgePort)]
     internal_ports = [port for port in simulation.ports if isinstance(port, InternalPort)]

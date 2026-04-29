@@ -1,4 +1,4 @@
-"""HFSS pilot export for one SQNL feedline/readout resonator unit cell."""
+"""HFSS export for an SQNL readout resonator crop generated from the full chip PCell."""
 
 import argparse
 import csv
@@ -10,94 +10,25 @@ from pathlib import Path
 
 import numpy as np
 
-from kqcircuits.elements.meander import Meander
-from kqcircuits.elements.waveguide_coplanar import WaveguideCoplanar
 from kqcircuits.pya_resolver import pya
 from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
 from kqcircuits.simulations.port import EdgePort
-from kqcircuits.simulations.simulation import Simulation
-from kqcircuits.util.parameters import Param, pdt
 
 from scdevice_pcells.simulations.ansys_batch import SIMULATION_BATCH_FILENAME, configure_ansys_batch
 from scdevice_pcells.simulations.export_paths import create_or_empty_scdevice_tmp_directory
-
-
-def _num_meanders(meander_length, turn_radius, meander_width):
-    return max(1, int((meander_length - turn_radius * (math.pi - 2)) / (meander_width + turn_radius * (math.pi - 2))))
-
-
-class SqnlReadoutResonatorSim(Simulation):
-    """Two-port CPW feedline coupled to one open-ended readout resonator."""
-
-    resonator_length = Param(pdt.TypeDouble, "Total resonator centerline length", 5200, unit="um")
-    coupling_length = Param(pdt.TypeDouble, "Feedline-parallel coupling length", 400, unit="um")
-    feedline_resonator_gap = Param(pdt.TypeDouble, "Feedline-to-resonator centerline gap", 27, unit="um")
-    resonator_turn_radius = Param(pdt.TypeDouble, "Resonator turn radius", 50, unit="um")
-    resonator_meander_width = Param(pdt.TypeDouble, "Minimum resonator meander width", 350, unit="um")
-    resonator_stem_length = Param(pdt.TypeDouble, "Open-end stem length", 500, unit="um")
-    feedline_length = Param(pdt.TypeDouble, "Minimum feedline length", 3000, unit="um")
-    feedline_port_padding = Param(pdt.TypeDouble, "Feedline padding outside resonator extents", 1000, unit="um")
-    box_y_margin = Param(pdt.TypeDouble, "Vertical simulation box margin", 500, unit="um")
-
-    def build(self):
-        resonator_points, meander_start, num_meanders = self._produce_readout_resonator()
-        meander_end = meander_start + pya.DPoint(0, 2 * self.resonator_turn_radius * (num_meanders + 1))
-
-        x_values = [point.x for point in resonator_points + [meander_start, meander_end]]
-        half_feedline = max(
-            float(self.feedline_length) / 2,
-            abs(min(x_values)) + float(self.feedline_port_padding),
-            abs(max(x_values)) + float(self.feedline_port_padding),
-        )
-        feedline_start = pya.DPoint(-half_feedline, 0)
-        feedline_end = pya.DPoint(half_feedline, 0)
-        self.insert_cell(WaveguideCoplanar, path=pya.DPath([feedline_start, feedline_end], 1))
-
-        y_values = [point.y for point in resonator_points + [meander_start, meander_end, feedline_start, feedline_end]]
-        self.box = pya.DBox(feedline_start, feedline_end)
-        self.box.bottom = min(y_values) - float(self.box_y_margin)
-        self.box.top = max(y_values) + float(self.box_y_margin)
-        self.ground_grid_box = self.box
-
-        self.ports.append(EdgePort(1, feedline_start))
-        self.ports.append(EdgePort(2, feedline_end))
-        self.refpoints["feedline_port_1"] = feedline_start
-        self.refpoints["feedline_port_2"] = feedline_end
-        self.refpoints["resonator_open"] = resonator_points[0]
-        self.refpoints["resonator_meander_start"] = meander_start
-        self.refpoints["resonator_meander_end"] = meander_end
-
-    def _produce_readout_resonator(self):
-        turn_radius = float(self.resonator_turn_radius)
-        coupling_length = float(self.coupling_length)
-        coupling_y = float(self.feedline_resonator_gap)
-        pos_start = pya.DPoint(coupling_length / 2, coupling_y + float(self.resonator_stem_length))
-        meander_start_x = pos_start.x - coupling_length - 2 * turn_radius
-        meander_start = pya.DPoint(meander_start_x, coupling_y + 2 * turn_radius)
-        resonator_points = [
-            pos_start,
-            pya.DPoint(pos_start.x, coupling_y),
-            pya.DPoint(meander_start_x, coupling_y),
-            meander_start,
-        ]
-
-        non_meander = self.add_element(WaveguideCoplanar, path=pya.DPath(resonator_points, 1), r=turn_radius)
-        self.insert_cell(non_meander)
-        meander_length = float(self.resonator_length) - non_meander.length()
-        if meander_length <= 4 * turn_radius:
-            raise ValueError(f"resonator_length={self.resonator_length} um is too short for this geometry.")
-
-        num_meanders = _num_meanders(meander_length, turn_radius, float(self.resonator_meander_width))
-        self.insert_cell(
-            Meander,
-            start_point=meander_start,
-            end_point=meander_start + pya.DPoint(0, 2 * turn_radius * (num_meanders + 1)),
-            length=meander_length,
-            meanders=num_meanders,
-            r=turn_radius,
-        )
-        return resonator_points, meander_start, num_meanders
+from scdevice_pcells.simulations.sqnl_readout_resonator_common import (
+    DEFAULT_FEEDLINE_Y,
+    add_feedline_edge_ports,
+    build_sqnl_cell,
+    crop_box_for_resonator,
+    format_value,
+    get_cell_refpoints,
+    make_readout_metadata,
+    make_simulation_from_cell,
+    point_inside_box,
+    readout_short_has_no_open_gap_cap,
+)
 
 
 def parse_lengths(value):
@@ -109,32 +40,29 @@ def parse_lengths(value):
     return [start + i * step for i in range(int(math.floor((stop - start) / step + 1e-12)) + 1)]
 
 
-def format_value(value):
-    if abs(value - round(value)) < 1e-9:
-        return str(int(round(value)))
-    return f"{value:g}".replace(".", "p")
-
-
 def make_simulations(layout, args):
     simulations = []
     for length in parse_lengths(args.lengths):
-        name = f"sqnl_ro_len_{format_value(length)}_cpl_{format_value(args.coupling_length)}_gap_{format_value(args.gap)}"
-        simulations.append(
-            SqnlReadoutResonatorSim(
-                layout,
-                name=name,
-                face_stack=["1t1"],
-                use_ports=True,
-                port_size=args.port_size,
-                a=args.center_trace_width,
-                b=args.gap_width,
-                resonator_length=length,
-                coupling_length=args.coupling_length,
-                feedline_resonator_gap=args.gap,
-                resonator_turn_radius=args.turn_radius,
-                resonator_meander_width=args.meander_width,
-            )
+        name = (
+            f"sqnl_ro_qb{args.resonator_index}_len_{format_value(length)}"
+            f"_cpl_{format_value(args.coupling_length)}_gap_{format_value(args.gap)}"
         )
+        cell, selected_length, readout_res_lengths, readout_coupling_lengths = build_sqnl_cell(layout, args, length)
+        refpoints = get_cell_refpoints(cell)
+        crop_box = crop_box_for_resonator(refpoints, args)
+        metadata = make_readout_metadata(args, selected_length, readout_res_lengths, readout_coupling_lengths, crop_box)
+        simulation = make_simulation_from_cell(
+            cell,
+            refpoints,
+            crop_box,
+            args.resonator_index,
+            name,
+            metadata,
+            use_ports=True,
+            port_size=args.port_size,
+        )
+        add_feedline_edge_ports(simulation, crop_box)
+        simulations.append(simulation)
     logging.info("Exporting %d HFSS case(s).", len(simulations))
     return simulations
 
@@ -149,6 +77,11 @@ def load_parameters(export_path, simulation_name):
         return {}
     with open(json_path, "r", encoding="utf-8-sig") as file:
         return json.load(file).get("parameters", {})
+
+
+def metadata_from_parameters(parameters):
+    metadata = parameters.get("extra_json_data") or {}
+    return metadata if isinstance(metadata, dict) else {}
 
 
 def crossing_frequency(frequency, power, index, target, direction):
@@ -197,14 +130,15 @@ def summarize_results(export_path, qc_min, qc_max):
     rows = []
     for snp_path in sorted(export_path.glob("*_SMatrix.s*p")):
         sim_name = simulation_name_from_snp(snp_path)
-        params = load_parameters(export_path, sim_name)
+        metadata = metadata_from_parameters(load_parameters(export_path, sim_name))
         network = rf.Network(str(snp_path))
         rows.append(
             {
                 "simulation_name": sim_name,
-                "resonator_length": params.get("resonator_length"),
-                "coupling_length": params.get("coupling_length"),
-                "feedline_resonator_gap": params.get("feedline_resonator_gap"),
+                "resonator_index": metadata.get("resonator_index"),
+                "resonator_length": metadata.get("resonator_length"),
+                "coupling_length": metadata.get("coupling_length"),
+                "feedline_resonator_gap": metadata.get("feedline_resonator_gap"),
                 **estimate_notch_metrics(network.f / 1e9, network.s[:, 1, 0], qc_min, qc_max),
             }
         )
@@ -214,6 +148,7 @@ def summarize_results(export_path, qc_min, qc_max):
 
     fieldnames = [
         "simulation_name",
+        "resonator_index",
         "resonator_length",
         "coupling_length",
         "feedline_resonator_gap",
@@ -233,7 +168,27 @@ def summarize_results(export_path, qc_min, qc_max):
 
 def run_smoke_check(simulations, export_path):
     for simulation in simulations:
-        assert len([port for port in simulation.ports if isinstance(port, EdgePort)]) == 2
+        edge_ports = [port for port in simulation.ports if isinstance(port, EdgePort)]
+        assert len(edge_ports) == 2
+        assert abs(edge_ports[0].signal_location.x - simulation.box.left) < 1e-9
+        assert abs(edge_ports[1].signal_location.x - simulation.box.right) < 1e-9
+        assert edge_ports[0].signal_location.y == edge_ports[1].signal_location.y == DEFAULT_FEEDLINE_Y
+
+        metadata = simulation.extra_json_data
+        index = metadata["resonator_index"]
+        assert metadata["readout_res_lengths"][index] == metadata["resonator_length"]
+        assert metadata["readout_coupling_lengths"][index] == metadata["coupling_length"]
+        assert metadata["readout_short_type"] == "galvanic_term1_0"
+        assert point_inside_box(simulation.refpoints[f"qb_{index}_port_cplr"], simulation.box)
+        assert point_inside_box(simulation.refpoints[f"qb_{index}_base"], simulation.box)
+        assert point_inside_box(simulation.refpoints[f"readout_{index}_short"], simulation.box)
+        assert readout_short_has_no_open_gap_cap(
+            simulation,
+            index,
+            metadata.get("center_trace_width", 10),
+            metadata.get("gap_width", 6),
+        )
+
     assert (export_path / "simulation.oas").exists()
     assert (export_path / "simulation.bat").exists()
     assert (export_path / SIMULATION_BATCH_FILENAME).exists()
@@ -242,10 +197,14 @@ def run_smoke_check(simulations, export_path):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lengths", default="5200")
+    parser.add_argument("--resonator-index", type=int, choices=range(6), default=0)
     parser.add_argument("--coupling-length", type=float, default=400)
     parser.add_argument("--gap", type=float, default=27)
     parser.add_argument("--turn-radius", type=float, default=50)
     parser.add_argument("--meander-width", type=float, default=350)
+    parser.add_argument("--crop-half-width", type=float, default=1000)
+    parser.add_argument("--crop-feedline-margin", type=float, default=500)
+    parser.add_argument("--crop-qubit-margin", type=float, default=800)
     parser.add_argument("--center-trace-width", type=float, default=10)
     parser.add_argument("--gap-width", type=float, default=6)
     parser.add_argument("--port-size", type=float, default=200)

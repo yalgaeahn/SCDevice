@@ -135,11 +135,12 @@ class SqnlSingle(Chip):
 
         )
 
-    def _produce_waveguide(self, path, term2=0, turn_radius=None):
+    def _produce_waveguide(self, path, term1=0, term2=0, turn_radius=None):
         """Produces a coplanar waveguide that follows the given path.
 
         Args:
             path: a DPath object determining the waveguide path
+            term1: term1 of the waveguide
             term2: term2 of the waveguide
             turn_radius: turn_radius of the waveguide
 
@@ -153,6 +154,7 @@ class SqnlSingle(Chip):
             WaveguideCoplanar,
             path=pya.DPath(path, 1),
             r=turn_radius,
+            term1=term1,
             term2=term2,
         )
         self.insert_cell(waveguide)
@@ -221,10 +223,10 @@ class SqnlSingle(Chip):
         qb5_refpoints = self._produce_qubit(qubit, qubits_center_x + qubit_spacing_x * (3 / 2), y_b, 0, "qb_5")
         return qb0_refpoints, qb1_refpoints, qb2_refpoints, qb3_refpoints, qb4_refpoints, qb5_refpoints
 
-    def _produce_readout_resonator(self, total_length, coupling_length, pos_cplr, above_feedline):
+    def _produce_readout_resonator(self, total_length, coupling_length, pos_cplr, above_feedline, resonator_index=None):
         """Produces a readout resonator coupled to a qubit.
 
-        The resonator starts from the feedline-side open end, goes along the feedline coupling section, and finally
+        The resonator starts from the feedline-side shorted end, goes along the feedline coupling section, and finally
         meanders to the qubit coupler port.
 
         Args:
@@ -244,9 +246,9 @@ class SqnlSingle(Chip):
         distance_to_feedline = float(self.readout_feedline_gap)
         feedline_y = float(self.feedline_y)
         feedline_coupling_y = feedline_y + factor * distance_to_feedline
-        open_end_x = pos_cplr.x - (coupling_length + 2 * turn_radius)
-        open_end = pya.DPoint(
-            open_end_x,
+        short_end_x = pos_cplr.x - (coupling_length + 2 * turn_radius)
+        short_end = pya.DPoint(
+            short_end_x,
             feedline_y + factor * distance_to_feedline + factor * 2 * turn_radius,
         )
         meander_start = pya.DPoint(
@@ -256,13 +258,16 @@ class SqnlSingle(Chip):
         # non-meandering part of the resonator
         coupler_waveguide = self._produce_waveguide(
             [
-                open_end,
-                pya.DPoint(open_end_x, feedline_coupling_y),
+                short_end,
+                pya.DPoint(short_end_x, feedline_coupling_y),
                 pya.DPoint(pos_cplr.x, feedline_coupling_y),
                 meander_start,
             ],
+            term1=0,
             turn_radius=turn_radius,
         )
+        if resonator_index is not None:
+            self.refpoints[f"readout_{resonator_index}_short"] = short_end
         len_coupler = coupler_waveguide.length()
         # meandering part of the resonator
         meander_length = total_length - len_coupler
@@ -291,6 +296,7 @@ class SqnlSingle(Chip):
                 coupling_lengths[index],
                 self.qubits_refpoints[index]["port_cplr"],
                 is_above,
+                index,
             )
 
     def _produce_chargeline(self, pos_launcher, pos_port_drive, y_distance):

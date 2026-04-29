@@ -1,18 +1,38 @@
 """Helpers for local Ansys batch exports in the SCDevice tree."""
 
 import json
+import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
 from shutil import copy2
 
 from kqcircuits.defaults import ANSYS_EXECUTABLE as KQC_ANSYS_EXECUTABLE
+from kqcircuits.pya_resolver import pya
+from kqcircuits.util.load_save_layout import save_layout
 
 
 LOCAL_ANSYS_HELPER_DIR = Path(__file__).with_name("ansys_local")
 SIMULATION_BATCH_FILENAME = "simulation_batch.json"
 PYEPR_PARAMETER_FILENAME = "run_pyepr_t1_estimate.json"
 ANSYS_EXECUTABLE_ENV = "SCDEVICE_ANSYS_EXECUTABLE"
+PYEPR_PYTHON_ENV = "SCDEVICE_PYEPR_PYTHON"
 ANSYS_EXECUTABLE_NAMES = ("ansysedt.exe", "ansysedtsv.exe")
+PYEPR_REQUIRED_MODULES = ("pyEPR", "qutip", "pandas", "win32com", "pythoncom")
+EIGENMODE_FIELD_SAVE_NEEDLE = '''            "IsEnabled:=",
+            True,
+            "BasisOrder:=",
+            setup["basis_order"],'''
+EIGENMODE_FIELD_SAVE_REPLACEMENT = '''            "IsEnabled:=",
+            True,
+            "SaveRadFieldsOnly:=",
+            False,
+            "SaveAnyFields:=",
+            True,
+            "BasisOrder:=",
+            setup["basis_order"],'''
+ANSYS_GDS_LAYER_START = 1
 
 
 def _existing_file(path):
@@ -60,6 +80,47 @@ def resolve_ansys_executable():
     return Path(os.path.expandvars(str(KQC_ANSYS_EXECUTABLE)))
 
 
+def resolve_pyepr_python():
+    """Return the Python executable used for pyEPR post-processing."""
+    override = os.environ.get(PYEPR_PYTHON_ENV)
+    return Path(os.path.expandvars(override)).expanduser() if override else Path(sys.executable)
+
+
+def warn_if_pyepr_python_missing_modules(python_executable: Path):
+    """Log a warning if the selected pyEPR Python cannot import required modules."""
+    if not python_executable.is_file():
+        logging.warning("pyEPR Python executable does not exist: %s", python_executable)
+        return
+
+    check = (
+        "import importlib.util, sys; "
+        f"missing = [m for m in {PYEPR_REQUIRED_MODULES!r} if importlib.util.find_spec(m) is None]; "
+        "print(','.join(missing)); "
+        "sys.exit(1 if missing else 0)"
+    )
+    try:
+        result = subprocess.run(
+            [str(python_executable), "-c", check],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except OSError as error:
+        logging.warning("Unable to check pyEPR Python '%s': %s", python_executable, error)
+        return
+
+    missing = result.stdout.strip()
+    if result.returncode != 0 and missing:
+        logging.warning(
+            "pyEPR post-processing Python '%s' is missing modules: %s. "
+            "Install them there or set %s to another Python executable.",
+            python_executable,
+            missing,
+            PYEPR_PYTHON_ENV,
+        )
+
+
 def get_pyepr_parameters():
     """Return pyEPR post-processing parameters for local eigenmode sweeps."""
     return {
@@ -98,6 +159,79 @@ def write_simulation_batch_manifest(path: Path, simulations) -> Path:
     return write_json_file(manifest_path, {"json_filenames": json_filenames})
 
 
+def _simulation_json_paths(path: Path, simulation):
+    exact_path = path / f"{simulation.name}.json"
+    if exact_path.exists():
+        return [exact_path]
+    return [
+        candidate
+        for candidate in sorted(path.glob(f"{simulation.name}*.json"))
+        if candidate.name not in {SIMULATION_BATCH_FILENAME, PYEPR_PARAMETER_FILENAME}
+    ]
+
+
+def simulations_request_pyepr(path: Path, simulations):
+    """Return True if any exported simulation JSON asks for pyEPR post-processing."""
+    for simulation in simulations:
+        for json_path in _simulation_json_paths(path, simulation):
+            with open(json_path, "r", encoding="utf-8-sig") as file:
+                json_data = json.load(file)
+            if "pyepr" in json_data.get("simulation_flags", []):
+                return True
+    return False
+
+
+def rewrite_ansys_gds_layers(path: Path, simulations):
+    """Rewrite Ansys GDS files using GDS-compatible layer numbers and update JSON metadata."""
+    for simulation in simulations:
+        json_paths = _simulation_json_paths(path, simulation)
+        if not json_paths:
+            logging.warning("Cannot rewrite Ansys GDS layers; missing JSON for simulation %s", simulation.name)
+            continue
+
+        for json_path in json_paths:
+            with open(json_path, "r", encoding="utf-8-sig") as file:
+                json_data = json.load(file)
+
+            gds_file = json_data.get("gds_file")
+            layers = json_data.get("layers", {})
+            if not gds_file or not layers:
+                continue
+
+            gds_path = path / gds_file
+            layer_map = {}
+            next_layer = ANSYS_GDS_LAYER_START
+            for layer_name, layer_data in layers.items():
+                if "layer" not in layer_data:
+                    continue
+                if next_layer > 255:
+                    raise ValueError("Ansys GDS export needs at most 255 simulation layers.")
+                layer_map[layer_name] = (layer_data["layer"], next_layer)
+                layer_data["layer"] = next_layer
+                next_layer += 1
+
+            gds_scaling = json_data.get("gds_scaling", min(1e3 * simulation.layout.dbu, 1.0))
+            gds_layout = pya.Layout()
+            gds_layout.dbu = simulation.layout.dbu / gds_scaling
+            gds_cell = gds_layout.create_cell(simulation.name)
+            gds_layers = []
+            for layer_name, (source_layer, gds_layer) in layer_map.items():
+                source_index = simulation.layout.layer(pya.LayerInfo(source_layer, 0, layer_name))
+                region = pya.Region(simulation.cell.begin_shapes_rec(source_index))
+                if region.is_empty():
+                    source_index = simulation.layout.layer(pya.LayerInfo(source_layer, 0))
+                    region = pya.Region(simulation.cell.begin_shapes_rec(source_index))
+                if region.is_empty():
+                    logging.warning("Skipping empty Ansys GDS layer %s for %s", layer_name, simulation.name)
+                    continue
+                target_info = pya.LayerInfo(gds_layer, 0, layer_name)
+                gds_layers.append(target_info)
+                gds_cell.shapes(gds_layout.layer(target_info)).insert(region)
+
+            save_layout(gds_path, gds_layout, [gds_cell], gds_layers, no_empty_cells=True)
+            write_json_file(json_path, json_data)
+
+
 def copy_local_ansys_helpers(path: Path):
     """Copy local batch helper scripts into the export scripts folder."""
     scripts_path = path / "scripts"
@@ -106,7 +240,40 @@ def copy_local_ansys_helpers(path: Path):
         copy2(LOCAL_ANSYS_HELPER_DIR / helper_name, scripts_path / helper_name)
 
 
-def write_simulation_bat(path: Path, sim_tool: str):
+def patch_eigenmode_field_saving(path: Path):
+    """Ensure exported HFSS eigenmode setup saves fields needed by pyEPR."""
+    script_path = path / "scripts" / "import_simulation_geometry.py"
+    if not script_path.exists():
+        logging.warning("Cannot patch eigenmode field saving; missing %s", script_path)
+        return
+
+    script_text = script_path.read_text(encoding="utf-8")
+    eigenmode_section_start = script_text.find('elif ansys_tool == "eigenmode":')
+    eigenmode_section_end = script_text.find("else:  # use ansys_project_template", eigenmode_section_start)
+    if eigenmode_section_start < 0 or eigenmode_section_end < 0:
+        logging.warning("Cannot patch eigenmode field saving; eigenmode setup block not found in %s", script_path)
+        return
+
+    eigenmode_section = script_text[eigenmode_section_start:eigenmode_section_end]
+    if '"SaveAnyFields:="' in eigenmode_section:
+        return
+    if EIGENMODE_FIELD_SAVE_NEEDLE not in eigenmode_section:
+        logging.warning("Cannot patch eigenmode field saving; setup anchor not found in %s", script_path)
+        return
+
+    patched_section = eigenmode_section.replace(
+        EIGENMODE_FIELD_SAVE_NEEDLE,
+        EIGENMODE_FIELD_SAVE_REPLACEMENT,
+        1,
+    )
+    script_path.write_text(
+        script_text[:eigenmode_section_start] + patched_section + script_text[eigenmode_section_end:],
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def write_simulation_bat(path: Path, sim_tool: str, enable_pyepr=False):
     """Rewrite simulation.bat to run the local single-session batch flow."""
     bat_path = path / "simulation.bat"
     ansys_script = str(Path("scripts").joinpath("import_simulation_batch.py"))
@@ -120,12 +287,27 @@ def write_simulation_bat(path: Path, sim_tool: str):
         f"echo Batch import - {sim_tool}",
         f'"{ansys_executable}" -scriptargs "{SIMULATION_BATCH_FILENAME}" -RunScriptAndExit "{ansys_script}"',
     ]
-    if sim_tool == "eigenmode":
+    if sim_tool == "eigenmode" and enable_pyepr:
         pyepr_script = str(Path("scripts").joinpath("run_pyepr_t1_estimate_batch.py"))
+        pyepr_python = resolve_pyepr_python()
+        warn_if_pyepr_python_missing_modules(pyepr_python)
+        module_check = (
+            "import importlib.util, sys; "
+            f"missing = [m for m in {PYEPR_REQUIRED_MODULES!r} if importlib.util.find_spec(m) is None]; "
+            "print('Missing pyEPR dependencies: ' + ', '.join(missing)) if missing else None; "
+            "sys.exit(1 if missing else 0)"
+        )
         lines.extend(
             [
                 "echo Post-process",
-                f'python "{pyepr_script}" "{SIMULATION_BATCH_FILENAME}" "{PYEPR_PARAMETER_FILENAME}"',
+                f'set "{PYEPR_PYTHON_ENV}={pyepr_python}"',
+                "set \"PYTHONIOENCODING=utf-8\"",
+                f'"%{PYEPR_PYTHON_ENV}%" -c "{module_check}"',
+                "if errorlevel 1 (",
+                f"    echo Install pyEPR dependencies into %{PYEPR_PYTHON_ENV}% or set {PYEPR_PYTHON_ENV} to another Python.",
+                "    exit /b 1",
+                ")",
+                f'"%{PYEPR_PYTHON_ENV}%" "{pyepr_script}" "{SIMULATION_BATCH_FILENAME}" "{PYEPR_PARAMETER_FILENAME}"',
             ]
         )
 
@@ -135,8 +317,16 @@ def write_simulation_bat(path: Path, sim_tool: str):
 
 def configure_ansys_batch(path: Path, simulations, sim_tool: str):
     """Write local helper files and a custom batch runner for the export folder."""
+    rewrite_ansys_gds_layers(path, simulations)
     write_simulation_batch_manifest(path, simulations)
-    if sim_tool == "eigenmode":
+    enable_pyepr = sim_tool == "eigenmode" and simulations_request_pyepr(path, simulations)
+    if enable_pyepr:
         write_json_file(path / PYEPR_PARAMETER_FILENAME, get_pyepr_parameters())
+    else:
+        stale_pyepr_parameters = path / PYEPR_PARAMETER_FILENAME
+        if stale_pyepr_parameters.exists():
+            stale_pyepr_parameters.unlink()
     copy_local_ansys_helpers(path)
-    write_simulation_bat(path, sim_tool)
+    if enable_pyepr:
+        patch_eigenmode_field_saving(path)
+    write_simulation_bat(path, sim_tool, enable_pyepr=enable_pyepr)
