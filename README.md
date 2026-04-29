@@ -89,6 +89,8 @@ Use the repository like this during development:
 - edit `KQCircuits/` only for upstream-derived framework changes or loader/tooling changes
 - open `SCDevice/` as the workspace root so the VSCode task paths match the repository layout
 
+For runnable simulation examples and the recommended small HFSS pilot flow, see [docs/simulation-examples.md](docs/simulation-examples.md).
+
 ### Simulation Export Temp Path
 
 KQCircuits writes generated masks and simulation export outputs under `KQC_TMP_PATH`. If `KQC_TMP_PATH` is not set, KQCircuits falls back to the default `tmp` directory derived from its `ROOT_PATH`.
