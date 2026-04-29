@@ -1,15 +1,63 @@
 """Helpers for local Ansys batch exports in the SCDevice tree."""
 
 import json
+import os
 from pathlib import Path
 from shutil import copy2
 
-from kqcircuits.defaults import ANSYS_EXECUTABLE
+from kqcircuits.defaults import ANSYS_EXECUTABLE as KQC_ANSYS_EXECUTABLE
 
 
 LOCAL_ANSYS_HELPER_DIR = Path(__file__).with_name("ansys_local")
 SIMULATION_BATCH_FILENAME = "simulation_batch.json"
 PYEPR_PARAMETER_FILENAME = "run_pyepr_t1_estimate.json"
+ANSYS_EXECUTABLE_ENV = "SCDEVICE_ANSYS_EXECUTABLE"
+ANSYS_EXECUTABLE_NAMES = ("ansysedt.exe", "ansysedtsv.exe")
+
+
+def _existing_file(path):
+    path = Path(os.path.expandvars(str(path))).expanduser()
+    return path if path.is_file() else None
+
+
+def _iter_ansys_executable_candidates():
+    """Yield local Ansys Electronics Desktop executables, including Student."""
+    override = os.environ.get(ANSYS_EXECUTABLE_ENV) or os.environ.get("ANSYS_EXECUTABLE")
+    if override:
+        yield override
+
+    yield KQC_ANSYS_EXECUTABLE
+
+    program_roots = []
+    for env_name in ("ProgramFiles", "ProgramW6432"):
+        root = os.environ.get(env_name)
+        if root:
+            program_roots.append(Path(root))
+
+    install_roots = []
+    for root in program_roots:
+        install_roots.extend([root / "AnsysEM", root / "ANSYS Inc", root / "ANSYS Student"])
+
+    for install_root in install_roots:
+        if not install_root.is_dir():
+            continue
+        version_dirs = sorted(
+            (path for path in install_root.iterdir() if path.is_dir() and path.name.lower().startswith("v")),
+            reverse=True,
+        )
+        for version_dir in version_dirs:
+            for exe_dir in (version_dir / "Win64", version_dir / "AnsysEM" / "Win64", version_dir / "AnsysEM"):
+                for executable_name in ANSYS_EXECUTABLE_NAMES:
+                    yield exe_dir / executable_name
+
+
+def resolve_ansys_executable():
+    """Return the AEDT executable path used by generated batch files."""
+    for candidate in _iter_ansys_executable_candidates():
+        executable = _existing_file(candidate)
+        if executable:
+            return executable
+    return Path(os.path.expandvars(str(KQC_ANSYS_EXECUTABLE)))
 
 
 def get_pyepr_parameters():
@@ -62,6 +110,7 @@ def write_simulation_bat(path: Path, sim_tool: str):
     """Rewrite simulation.bat to run the local single-session batch flow."""
     bat_path = path / "simulation.bat"
     ansys_script = str(Path("scripts").joinpath("import_simulation_batch.py"))
+    ansys_executable = resolve_ansys_executable()
     lines = [
         "@echo off",
         "cd /d %~dp0",
@@ -69,7 +118,7 @@ def write_simulation_bat(path: Path, sim_tool: str):
         "title Run Simulations",
         r'powershell -Command "$sim_pids = Import-Clixml -Path blocking_pids.xml; if ($sim_pids) { echo \"Waiting for $sim_pids\"; Wait-Process $sim_pids -ErrorAction SilentlyContinue }; Remove-Item blocking_pids.xml"',
         f"echo Batch import - {sim_tool}",
-        f'"{ANSYS_EXECUTABLE}" -scriptargs "{SIMULATION_BATCH_FILENAME}" -RunScriptAndExit "{ansys_script}"',
+        f'"{ansys_executable}" -scriptargs "{SIMULATION_BATCH_FILENAME}" -RunScriptAndExit "{ansys_script}"',
     ]
     if sim_tool == "eigenmode":
         pyepr_script = str(Path("scripts").joinpath("run_pyepr_t1_estimate_batch.py"))

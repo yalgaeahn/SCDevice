@@ -116,28 +116,21 @@ class SqnlSingle(Chip):
         else:
             self._produce_feedline(feedline_x_distance)
 
-        if self.use_qubits:
-            self._produce_chargelines()
+        # Charge lines still depend on the old eight-launcher layout, so they are disabled here.
 
     def _produce_launchers(self):
         return self.produce_n_launchers(
-            n=8,
+            n=(0, 1, 0, 1),
             launcher_type="RF",
             launcher_width=300,
             launcher_gap=260,
-            launcher_indent=800, #edge에서 port까지 거리
+            launcher_indent=800,
             launcher_frame_gap=180,
-            pad_pitch=5000, #같은 변 위 launcher 사이 간격
-            chip_box=pya.DBox(pya.DPoint(0,0), pya.DPoint(10000,10000)),
+            pad_pitch=5000,
+            chip_box=pya.DBox(pya.DPoint(0, 0), pya.DPoint(10000, 10000)),
             launcher_assignments={
-                1: "NW",
-                2: "NE",
-                3: "EN",
-                4: "ES",
-                5: "SE",
-                6: "SW",
-                7: "WS",
-                8: "WN",
+                1: "E",
+                2: "W",
             }
 
         )
@@ -228,16 +221,16 @@ class SqnlSingle(Chip):
         qb5_refpoints = self._produce_qubit(qubit, qubits_center_x + qubit_spacing_x * (3 / 2), y_b, 0, "qb_5")
         return qb0_refpoints, qb1_refpoints, qb2_refpoints, qb3_refpoints, qb4_refpoints, qb5_refpoints
 
-    def _produce_readout_resonator(self, total_length, coupling_length, pos_start, above_feedline):
+    def _produce_readout_resonator(self, total_length, coupling_length, pos_cplr, above_feedline):
         """Produces a readout resonator coupled to a qubit.
 
-        The resonator consists of waveguide going vertically from the qubit towards the feedline, then going along
-        the feedline (coupled to feedline) and finally going away from the feedline as a meander.
+        The resonator starts from the feedline-side open end, goes along the feedline coupling section, and finally
+        meanders to the qubit coupler port.
 
         Args:
             total_length: A float defining the total length of the resonator waveguide.
             coupling_length: A float defining the length of the part of the resonator coupled to the feedline.
-            pos_start: A DPoint defining the start position of the resonator, should be at one of the qubit ports.
+            pos_cplr: A DPoint defining the qubit coupler port, which is the end of the resonator meander.
             above_feedline: A boolean value telling if the qubit is above the feedline or not.
 
         """
@@ -251,17 +244,21 @@ class SqnlSingle(Chip):
         distance_to_feedline = float(self.readout_feedline_gap)
         feedline_y = float(self.feedline_y)
         feedline_coupling_y = feedline_y + factor * distance_to_feedline
-        meander_start_x = pos_start.x - (coupling_length + 2 * turn_radius)
+        open_end_x = pos_cplr.x - (coupling_length + 2 * turn_radius)
+        open_end = pya.DPoint(
+            open_end_x,
+            feedline_y + factor * distance_to_feedline + factor * 2 * turn_radius,
+        )
         meander_start = pya.DPoint(
-            meander_start_x,
+            pos_cplr.x,
             feedline_y + factor * distance_to_feedline + factor * 2 * turn_radius,
         )
         # non-meandering part of the resonator
         coupler_waveguide = self._produce_waveguide(
             [
-                pos_start,
-                pya.DPoint(pos_start.x, feedline_coupling_y),
-                pya.DPoint(meander_start_x, feedline_coupling_y),
+                open_end,
+                pya.DPoint(open_end_x, feedline_coupling_y),
+                pya.DPoint(pos_cplr.x, feedline_coupling_y),
                 meander_start,
             ],
             turn_radius=turn_radius,
@@ -271,10 +268,13 @@ class SqnlSingle(Chip):
         meander_length = total_length - len_coupler
         w = float(self.readout_meander_width)
         num_meanders = _get_num_meanders(meander_length, turn_radius, w)
+        direct_meander_length = meander_start.distance(pos_cplr)
+        max_meanders = max(1, int(direct_meander_length / (2 * turn_radius) - 1))
+        num_meanders = min(num_meanders, max_meanders)
         self.insert_cell(
             Meander,
             start_point=meander_start,
-            end_point=meander_start + pya.DPoint(0, 2 * factor * turn_radius * (num_meanders + 1)),
+            end_point=pos_cplr,
             length=meander_length,
             meanders=num_meanders,
             r=turn_radius,
@@ -358,38 +358,27 @@ class SqnlSingle(Chip):
     def _produce_feedline(self, x_distance):
         """Produces a feedline for a SingleXmons chip.
 
-        The feedline is a waveguide connecting launcher "WN" to launcher "ES". It goes horizontally from the
-        launchers towards the center of the chip until it is clear of the junction test pads. Then it goes vertically
-        to the center horizontal line, after which it follows the horizontal line until the two sides are connected.
+        The feedline is a straight waveguide connecting launcher "W" to launcher "E".
 
         Args:
-            x_distance: A float defining the x-distance of the vertical parts from the launchers. This is used to stay
-                clear from the junction test pads.
+            x_distance: Kept for compatibility with the previous launcher dogleg feedline.
 
         """
-        feedline_y = float(self.feedline_y)
         self._produce_waveguide(
             [
-                self.launchers["WN"][0],
-                pya.DPoint(self.launchers["WN"][0].x + x_distance, self.launchers["WN"][0].y),
-                pya.DPoint(self.launchers["WN"][0].x + x_distance, feedline_y),
-                pya.DPoint(self.launchers["ES"][0].x - x_distance, feedline_y),
-                pya.DPoint(self.launchers["ES"][0].x - x_distance, self.launchers["ES"][0].y),
-                self.launchers["ES"][0],
+                self.launchers["W"][0],
+                self.launchers["E"][0],
             ]
         )
 
     def _produce_feedline_and_test_resonators(self, x_distance):
         """Produces a feedline and test resonators for a SingleXmons chip.
 
-        The feedline is a waveguide connecting launcher "WN" to launcher "ES". It goes horizontally from the
-        launchers towards the center of the chip until it is clear of the junction test pads. Then it goes vertically
-        to the center horizontal line, after which it follows the horizontal line until the two sides are connected.
+        The feedline is a straight waveguide connecting launcher "W" to launcher "E".
         There are four test resonators, located between the qubit pairs.
 
         Args:
-            x_distance: A float defining the x-distance of the vertical parts from the launchers. This is used to stay
-                clear from the junction test pads.
+            x_distance: Kept for compatibility with the previous launcher dogleg feedline.
 
         """
         x_offset = -700
@@ -441,9 +430,7 @@ class SqnlSingle(Chip):
 
         self._produce_waveguide(
             [
-                self.launchers["WN"][0],
-                pya.DPoint(self.launchers["WN"][0].x + x_distance, self.launchers["WN"][0].y),
-                pya.DPoint(self.launchers["WN"][0].x + x_distance, feedline_y),
+                self.launchers["W"][0],
                 self.get_refpoints(cell_cross, inst_crosses[0].dtrans)["port_left"],
             ]
         )
@@ -468,8 +455,6 @@ class SqnlSingle(Chip):
         self._produce_waveguide(
             [
                 self.get_refpoints(cell_cross, inst_crosses[3].dtrans)["port_left"],
-                pya.DPoint(self.launchers["ES"][0].x - x_distance, feedline_y),
-                pya.DPoint(self.launchers["ES"][0].x - x_distance, self.launchers["ES"][0].y),
-                self.launchers["ES"][0],
+                self.launchers["E"][0],
             ]
         )

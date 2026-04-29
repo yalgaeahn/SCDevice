@@ -34,7 +34,8 @@ from scdevice_pcells.simulations.ansys_batch import SIMULATION_BATCH_FILENAME, c
 from scdevice_pcells.simulations.export_paths import create_or_empty_scdevice_tmp_directory
 
 
-LAUNCHER_NAMES = ["NW", "WN", "WS", "SW", "SE", "ES", "EN", "NE"]
+LAUNCHER_NAMES = ["W", "E"]
+REMOVED_LAUNCHER_NAMES = ["NW", "WN", "WS", "SW", "SE", "ES", "EN", "NE"]
 
 
 def build_sqnl_cell(layout, use_test_resonators=False):
@@ -89,14 +90,8 @@ def add_sqnl_ports(simulation, refpoints, launchers=False):
     """Add edge and internal ports using the SQNL launcher and qubit refpoints."""
     port_shift = 600 if launchers else 0
     launcher_shifts = {
-        "NW": [0, port_shift],
-        "WN": [-port_shift, 0],
-        "WS": [-port_shift, 0],
-        "SW": [0, -port_shift],
-        "SE": [0, -port_shift],
-        "ES": [port_shift, 0],
-        "EN": [port_shift, 0],
-        "NE": [0, port_shift],
+        "W": [-port_shift, 0],
+        "E": [port_shift, 0],
     }
     for index, launcher_name in enumerate(LAUNCHER_NAMES, start=1):
         simulation.ports.append(
@@ -119,6 +114,9 @@ def run_smoke_check(simulation, refpoints, export_path):
     """Assert the expected SQNL geometry, ports, and exported batch artifacts."""
     for launcher_name in LAUNCHER_NAMES:
         assert f"{launcher_name}_port" in refpoints, f"Missing launcher refpoint: {launcher_name}_port"
+    for launcher_name in REMOVED_LAUNCHER_NAMES:
+        assert f"{launcher_name}_port" not in refpoints, f"Unexpected launcher refpoint: {launcher_name}_port"
+    assert refpoints["W_port"].y == refpoints["E_port"].y == 5000
 
     for qubit_index in range(6):
         assert f"qb_{qubit_index}_port_squid_a" in refpoints
@@ -126,7 +124,7 @@ def run_smoke_check(simulation, refpoints, export_path):
 
     edge_ports = [port for port in simulation.ports if isinstance(port, EdgePort)]
     internal_ports = [port for port in simulation.ports if isinstance(port, InternalPort)]
-    assert len(edge_ports) == 8, f"Expected 8 edge ports, found {len(edge_ports)}"
+    assert len(edge_ports) == 2, f"Expected 2 edge ports, found {len(edge_ports)}"
     assert len(internal_ports) == 6, f"Expected 6 internal ports, found {len(internal_ports)}"
 
     assert (export_path / "simulation.bat").exists(), "Missing simulation.bat"
@@ -199,7 +197,7 @@ def main():
         alternate_layout = pya.Layout()
         alternate_cell = build_sqnl_cell(alternate_layout, use_test_resonators=not args.use_test_resonators)
         alternate_refpoints = get_cell_refpoints(alternate_cell)
-        assert "WN_port" in alternate_refpoints and "ES_port" in alternate_refpoints
+        assert "W_port" in alternate_refpoints and "E_port" in alternate_refpoints
 
     if args.open_oas:
         open_with_klayout_or_default_application(oas)
