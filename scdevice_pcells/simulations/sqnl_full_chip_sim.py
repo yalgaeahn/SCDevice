@@ -25,14 +25,16 @@ from kqcircuits.pya_resolver import pya
 from kqcircuits.simulations.empty_simulation import EmptySimulation
 from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
+from kqcircuits.simulations.post_process import PostProcess
 from kqcircuits.simulations.port import EdgePort, InternalPort
 from kqcircuits.elements.element import get_refpoints
 from kqcircuits.util.export_helper import open_with_klayout_or_default_application
 
 from scdevice_pcells.chips.sqnl_chip import SqnlSingle
-from scdevice_pcells.simulations.ansys_batch import SIMULATION_BATCH_FILENAME, configure_ansys_batch
-from scdevice_pcells.simulations.export_paths import create_or_empty_scdevice_tmp_directory
-
+from scdevice_pcells.simulations.export_paths import (
+    create_or_empty_scdevice_tmp_directory,
+    make_simulation_bat_location_independent,
+)
 
 LAUNCHER_NAMES = ["W", "E"]
 REMOVED_LAUNCHER_NAMES = ["NW", "WN", "WS", "SW", "SE", "ES", "EN", "NE"]
@@ -95,7 +97,11 @@ def add_sqnl_ports(simulation, refpoints, launchers=False):
     }
     for index, launcher_name in enumerate(LAUNCHER_NAMES, start=1):
         simulation.ports.append(
-            EdgePort(index, refpoints[f"{launcher_name}_port"] + pya.DVector(*launcher_shifts[launcher_name]))
+            EdgePort(
+                index,
+                refpoints[f"{launcher_name}_port"]
+                + pya.DVector(*launcher_shifts[launcher_name]),
+            )
         )
 
     for qubit_index in range(6):
@@ -113,9 +119,13 @@ def add_sqnl_ports(simulation, refpoints, launchers=False):
 def run_smoke_check(simulation, refpoints, export_path):
     """Assert the expected SQNL geometry, ports, and exported batch artifacts."""
     for launcher_name in LAUNCHER_NAMES:
-        assert f"{launcher_name}_port" in refpoints, f"Missing launcher refpoint: {launcher_name}_port"
+        assert (
+            f"{launcher_name}_port" in refpoints
+        ), f"Missing launcher refpoint: {launcher_name}_port"
     for launcher_name in REMOVED_LAUNCHER_NAMES:
-        assert f"{launcher_name}_port" not in refpoints, f"Unexpected launcher refpoint: {launcher_name}_port"
+        assert (
+            f"{launcher_name}_port" not in refpoints
+        ), f"Unexpected launcher refpoint: {launcher_name}_port"
     assert refpoints["W_port"].y == refpoints["E_port"].y == 5000
 
     for qubit_index in range(6):
@@ -124,24 +134,47 @@ def run_smoke_check(simulation, refpoints, export_path):
         assert f"readout_{qubit_index}_short" in refpoints
 
     edge_ports = [port for port in simulation.ports if isinstance(port, EdgePort)]
-    internal_ports = [port for port in simulation.ports if isinstance(port, InternalPort)]
+    internal_ports = [
+        port for port in simulation.ports if isinstance(port, InternalPort)
+    ]
     assert len(edge_ports) == 2, f"Expected 2 edge ports, found {len(edge_ports)}"
-    assert len(internal_ports) == 6, f"Expected 6 internal ports, found {len(internal_ports)}"
+    assert (
+        len(internal_ports) == 6
+    ), f"Expected 6 internal ports, found {len(internal_ports)}"
 
     assert (export_path / "simulation.bat").exists(), "Missing simulation.bat"
     assert (export_path / "simulation.oas").exists(), "Missing simulation.oas"
-    assert (export_path / SIMULATION_BATCH_FILENAME).exists(), "Missing simulation_batch.json"
-    assert any(path.suffix == ".json" and path.name != SIMULATION_BATCH_FILENAME for path in export_path.iterdir())
+    assert any(path.suffix == ".json" for path in export_path.iterdir())
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ansys-tool", choices=("hfss", "q3d"), default="hfss")
-    parser.add_argument("--launchers", action="store_true", help="Include launcher pads in the port sizing setup")
-    parser.add_argument("--use-test-resonators", action="store_true", help="Build the test-resonator feedline variant")
-    parser.add_argument("--export-dir", type=Path, help="Export directory. Defaults to tmp/<script>_<tool>")
-    parser.add_argument("--smoke-check", action="store_true", help="Run local assertions on geometry and artifacts")
-    parser.add_argument("--open-oas", action="store_true", help="Open exported OAS in KLayout or the default app")
+    parser.add_argument(
+        "--launchers",
+        action="store_true",
+        help="Include launcher pads in the port sizing setup",
+    )
+    parser.add_argument(
+        "--use-test-resonators",
+        action="store_true",
+        help="Build the test-resonator feedline variant",
+    )
+    parser.add_argument(
+        "--export-dir",
+        type=Path,
+        help="Export directory. Defaults to tmp/<script>_<tool>",
+    )
+    parser.add_argument(
+        "--smoke-check",
+        action="store_true",
+        help="Run local assertions on geometry and artifacts",
+    )
+    parser.add_argument(
+        "--open-oas",
+        action="store_true",
+        help="Open exported OAS in KLayout or the default app",
+    )
     return parser.parse_known_args()[0]
 
 
@@ -152,7 +185,9 @@ def main():
     export_path = (
         args.export_dir
         if args.export_dir is not None
-        else create_or_empty_scdevice_tmp_directory(Path(__file__).stem + f"_{args.ansys_tool}")
+        else create_or_empty_scdevice_tmp_directory(
+            Path(__file__).stem + f"_{args.ansys_tool}"
+        )
     )
     if args.export_dir is not None:
         export_path.mkdir(parents=True, exist_ok=True)
@@ -187,16 +222,19 @@ def main():
                 "maximum_passes": 18,
                 "minimum_passes": 2,
                 "minimum_converged_passes": 2,
+                "post_process": PostProcess("produce_cmatrix_table.py"),
             }
         )
 
     export_ansys([simulation], **export_parameters)
-    configure_ansys_batch(export_path, [simulation], args.ansys_tool)
+    make_simulation_bat_location_independent(export_path)
 
     if args.smoke_check:
         run_smoke_check(simulation, refpoints, export_path)
         alternate_layout = pya.Layout()
-        alternate_cell = build_sqnl_cell(alternate_layout, use_test_resonators=not args.use_test_resonators)
+        alternate_cell = build_sqnl_cell(
+            alternate_layout, use_test_resonators=not args.use_test_resonators
+        )
         alternate_refpoints = get_cell_refpoints(alternate_cell)
         assert "W_port" in alternate_refpoints and "E_port" in alternate_refpoints
 

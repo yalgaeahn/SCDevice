@@ -9,13 +9,12 @@ from pathlib import Path
 from kqcircuits.pya_resolver import pya
 from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
+from kqcircuits.simulations.post_process import PostProcess
 
-from scdevice_pcells.simulations.ansys_batch import (
-    PYEPR_PARAMETER_FILENAME,
-    SIMULATION_BATCH_FILENAME,
-    configure_ansys_batch,
+from scdevice_pcells.simulations.export_paths import (
+    create_or_empty_scdevice_tmp_directory,
+    make_simulation_bat_location_independent,
 )
-from scdevice_pcells.simulations.export_paths import create_or_empty_scdevice_tmp_directory
 from scdevice_pcells.simulations.sqnl_readout_resonator_common import (
     build_sqnl_cell,
     crop_box_for_resonator,
@@ -26,7 +25,6 @@ from scdevice_pcells.simulations.sqnl_readout_resonator_common import (
     point_inside_box,
     readout_short_has_no_open_gap_cap,
 )
-
 
 FAST_EIGENMODE_DEFAULTS = {
     "min_frequency": 3.5,
@@ -48,6 +46,31 @@ PYEPR_EIGENMODE_DEFAULTS = {
 }
 
 
+def pyepr_post_process():
+    return PostProcess(
+        "run_pyepr_t1_estimate.py",
+        repeat_for_each=True,
+        substrate_loss_tangent=5e-7,
+        dielectric_surfaces={
+            "layerMA": {
+                "tan_delta_surf": 9.9e-3,
+                "th": 4.8e-9,
+                "eps_r": 8,
+            },
+            "layerMS": {
+                "tan_delta_surf": 2.6e-3,
+                "th": 0.3e-9,
+                "eps_r": 11.4,
+            },
+            "layerSA": {
+                "tan_delta_surf": 2.1e-3,
+                "th": 2.4e-9,
+                "eps_r": 4,
+            },
+        },
+    )
+
+
 def apply_eigenmode_defaults(args):
     defaults = PYEPR_EIGENMODE_DEFAULTS if args.with_pyepr else FAST_EIGENMODE_DEFAULTS
     for name, value in defaults.items():
@@ -57,7 +80,9 @@ def apply_eigenmode_defaults(args):
 
 
 def make_simulation(layout, args):
-    cell, selected_length, readout_res_lengths, readout_coupling_lengths = build_sqnl_cell(layout, args, args.length)
+    cell, selected_length, readout_res_lengths, readout_coupling_lengths = (
+        build_sqnl_cell(layout, args, args.length)
+    )
     refpoints = get_cell_refpoints(cell)
     crop_box = crop_box_for_resonator(refpoints, args)
     mode = "pyepr" if args.with_pyepr else "fast"
@@ -65,7 +90,9 @@ def make_simulation(layout, args):
         f"sqnl_ro_qb{args.resonator_index}_eigen_{mode}_len_{format_value(selected_length)}"
         f"_cpl_{format_value(args.coupling_length)}_gap_{format_value(args.gap)}"
     )
-    metadata = make_readout_metadata(args, selected_length, readout_res_lengths, readout_coupling_lengths, crop_box)
+    metadata = make_readout_metadata(
+        args, selected_length, readout_res_lengths, readout_coupling_lengths, crop_box
+    )
     metadata["eigenmode_mode"] = mode
     simulation_kwargs = {}
     if args.with_pyepr:
@@ -88,20 +115,20 @@ def make_simulation(layout, args):
 
 
 def load_exported_json(export_path, simulation):
-    with open(export_path / f"{simulation.name}.json", "r", encoding="utf-8-sig") as file:
+    with open(
+        export_path / f"{simulation.name}.json", "r", encoding="utf-8-sig"
+    ) as file:
         return json.load(file)
 
 
 def run_smoke_check(simulation, export_path, args):
     assert (export_path / "simulation.oas").exists(), "Missing simulation.oas"
     assert (export_path / "simulation.bat").exists(), "Missing simulation.bat"
-    assert (export_path / SIMULATION_BATCH_FILENAME).exists(), "Missing simulation_batch.json"
     simulation_bat = (export_path / "simulation.bat").read_text(encoding="utf-8")
     if args.with_pyepr:
-        assert (export_path / PYEPR_PARAMETER_FILENAME).exists(), f"Missing {PYEPR_PARAMETER_FILENAME}"
-        assert "run_pyepr_t1_estimate_batch.py" in simulation_bat
+        assert "run_pyepr_t1_estimate.py" in simulation_bat
     else:
-        assert "run_pyepr_t1_estimate_batch.py" not in simulation_bat
+        assert "run_pyepr_t1_estimate.py" not in simulation_bat
 
     exported = load_exported_json(export_path, simulation)
     assert exported["ports"] == [], "Eigenmode crop must not export feedline EdgePorts"
@@ -119,9 +146,13 @@ def run_smoke_check(simulation, export_path, args):
     assert metadata["readout_coupling_lengths"][index] == metadata["coupling_length"]
     assert metadata["readout_short_type"] == "galvanic_term1_0"
     assert metadata["eigenmode_mode"] == ("pyepr" if args.with_pyepr else "fast")
-    assert point_inside_box(simulation.refpoints[f"qb_{index}_port_cplr"], simulation.box)
+    assert point_inside_box(
+        simulation.refpoints[f"qb_{index}_port_cplr"], simulation.box
+    )
     assert point_inside_box(simulation.refpoints[f"qb_{index}_base"], simulation.box)
-    assert point_inside_box(simulation.refpoints[f"readout_{index}_short"], simulation.box)
+    assert point_inside_box(
+        simulation.refpoints[f"readout_{index}_short"], simulation.box
+    )
     assert readout_short_has_no_open_gap_cap(
         simulation,
         index,
@@ -143,8 +174,14 @@ def parse_args():
     parser.add_argument("--crop-qubit-margin", type=float, default=800)
     parser.add_argument("--center-trace-width", type=float, default=10)
     parser.add_argument("--gap-width", type=float, default=6)
-    parser.add_argument("--with-pyepr", action="store_true", help="Enable TLS layers, field saving, and pyEPR export")
-    parser.add_argument("--pyepr", dest="with_pyepr", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--with-pyepr",
+        action="store_true",
+        help="Enable TLS layers, field saving, and pyEPR export",
+    )
+    parser.add_argument(
+        "--pyepr", dest="with_pyepr", action="store_true", help=argparse.SUPPRESS
+    )
     parser.add_argument("--min-frequency", type=float)
     parser.add_argument("--n-modes", type=int)
     parser.add_argument("--max-delta-f", type=float)
@@ -161,7 +198,9 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
-    export_path = args.export_dir or create_or_empty_scdevice_tmp_directory(Path(__file__).stem + "_eigenmode")
+    export_path = args.export_dir or create_or_empty_scdevice_tmp_directory(
+        Path(__file__).stem + "_eigenmode"
+    )
     export_path.mkdir(parents=True, exist_ok=True)
 
     layout = pya.Layout()
@@ -180,8 +219,9 @@ def main():
         minimum_passes=args.minimum_passes,
         minimum_converged_passes=args.minimum_converged_passes,
         simulation_flags=["pyepr"] if args.with_pyepr else [],
+        post_process=pyepr_post_process() if args.with_pyepr else None,
     )
-    configure_ansys_batch(export_path, [simulation], "eigenmode")
+    make_simulation_bat_location_independent(export_path)
 
     if args.smoke_check:
         run_smoke_check(simulation, export_path, args)

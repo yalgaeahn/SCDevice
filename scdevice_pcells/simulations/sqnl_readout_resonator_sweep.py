@@ -15,8 +15,10 @@ from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
 from kqcircuits.simulations.port import EdgePort
 
-from scdevice_pcells.simulations.ansys_batch import SIMULATION_BATCH_FILENAME, configure_ansys_batch
-from scdevice_pcells.simulations.export_paths import create_or_empty_scdevice_tmp_directory
+from scdevice_pcells.simulations.export_paths import (
+    create_or_empty_scdevice_tmp_directory,
+    make_simulation_bat_location_independent,
+)
 from scdevice_pcells.simulations.sqnl_readout_resonator_common import (
     DEFAULT_FEEDLINE_Y,
     add_feedline_edge_ports,
@@ -37,7 +39,10 @@ def parse_lengths(value):
     start, stop, step = [float(part.strip()) for part in value.split(":")]
     if step <= 0:
         raise ValueError("Length sweep step must be positive.")
-    return [start + i * step for i in range(int(math.floor((stop - start) / step + 1e-12)) + 1)]
+    return [
+        start + i * step
+        for i in range(int(math.floor((stop - start) / step + 1e-12)) + 1)
+    ]
 
 
 def make_simulations(layout, args):
@@ -47,10 +52,18 @@ def make_simulations(layout, args):
             f"sqnl_ro_qb{args.resonator_index}_len_{format_value(length)}"
             f"_cpl_{format_value(args.coupling_length)}_gap_{format_value(args.gap)}"
         )
-        cell, selected_length, readout_res_lengths, readout_coupling_lengths = build_sqnl_cell(layout, args, length)
+        cell, selected_length, readout_res_lengths, readout_coupling_lengths = (
+            build_sqnl_cell(layout, args, length)
+        )
         refpoints = get_cell_refpoints(cell)
         crop_box = crop_box_for_resonator(refpoints, args)
-        metadata = make_readout_metadata(args, selected_length, readout_res_lengths, readout_coupling_lengths, crop_box)
+        metadata = make_readout_metadata(
+            args,
+            selected_length,
+            readout_res_lengths,
+            readout_coupling_lengths,
+            crop_box,
+        )
         simulation = make_simulation_from_cell(
             cell,
             refpoints,
@@ -92,7 +105,12 @@ def crossing_frequency(frequency, power, index, target, direction):
         if (power[i] <= target <= power[j]) or (power[j] <= target <= power[i]):
             if abs(power[j] - power[i]) < 1e-30:
                 return float(frequency[i])
-            return float(frequency[i] + (target - power[i]) / (power[j] - power[i]) * (frequency[j] - frequency[i]))
+            return float(
+                frequency[i]
+                + (target - power[i])
+                / (power[j] - power[i])
+                * (frequency[j] - frequency[i])
+            )
         i = j
     return None
 
@@ -110,7 +128,11 @@ def estimate_notch_metrics(frequency_ghz, s21, qc_min, qc_max):
     left = crossing_frequency(frequency_ghz, power, index, target, -1)
     right = crossing_frequency(frequency_ghz, power, index, target, 1)
     bandwidth = None if left is None or right is None else right - left
-    ql = None if bandwidth is None or bandwidth <= 0 else float(frequency_ghz[index] / bandwidth)
+    ql = (
+        None
+        if bandwidth is None or bandwidth <= 0
+        else float(frequency_ghz[index] / bandwidth)
+    )
 
     s21_min = math.sqrt(max(float(power[index] / baseline), 0.0))
     qc = None if ql is None or s21_min >= 1 else float(ql / max(1e-12, 1 - s21_min))
@@ -139,7 +161,9 @@ def summarize_results(export_path, qc_min, qc_max):
                 "resonator_length": metadata.get("resonator_length"),
                 "coupling_length": metadata.get("coupling_length"),
                 "feedline_resonator_gap": metadata.get("feedline_resonator_gap"),
-                **estimate_notch_metrics(network.f / 1e9, network.s[:, 1, 0], qc_min, qc_max),
+                **estimate_notch_metrics(
+                    network.f / 1e9, network.s[:, 1, 0], qc_min, qc_max
+                ),
             }
         )
 
@@ -158,11 +182,15 @@ def summarize_results(export_path, qc_min, qc_max):
         "qc_in_target",
         "notch_depth_db",
     ]
-    with open(export_path / "readout_resonator_summary.csv", "w", encoding="utf-8", newline="") as file:
+    with open(
+        export_path / "readout_resonator_summary.csv", "w", encoding="utf-8", newline=""
+    ) as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-    with open(export_path / "readout_resonator_summary.json", "w", encoding="utf-8") as file:
+    with open(
+        export_path / "readout_resonator_summary.json", "w", encoding="utf-8"
+    ) as file:
         json.dump(rows, file, indent=4)
 
 
@@ -172,16 +200,28 @@ def run_smoke_check(simulations, export_path):
         assert len(edge_ports) == 2
         assert abs(edge_ports[0].signal_location.x - simulation.box.left) < 1e-9
         assert abs(edge_ports[1].signal_location.x - simulation.box.right) < 1e-9
-        assert edge_ports[0].signal_location.y == edge_ports[1].signal_location.y == DEFAULT_FEEDLINE_Y
+        assert (
+            edge_ports[0].signal_location.y
+            == edge_ports[1].signal_location.y
+            == DEFAULT_FEEDLINE_Y
+        )
 
         metadata = simulation.extra_json_data
         index = metadata["resonator_index"]
         assert metadata["readout_res_lengths"][index] == metadata["resonator_length"]
-        assert metadata["readout_coupling_lengths"][index] == metadata["coupling_length"]
+        assert (
+            metadata["readout_coupling_lengths"][index] == metadata["coupling_length"]
+        )
         assert metadata["readout_short_type"] == "galvanic_term1_0"
-        assert point_inside_box(simulation.refpoints[f"qb_{index}_port_cplr"], simulation.box)
-        assert point_inside_box(simulation.refpoints[f"qb_{index}_base"], simulation.box)
-        assert point_inside_box(simulation.refpoints[f"readout_{index}_short"], simulation.box)
+        assert point_inside_box(
+            simulation.refpoints[f"qb_{index}_port_cplr"], simulation.box
+        )
+        assert point_inside_box(
+            simulation.refpoints[f"qb_{index}_base"], simulation.box
+        )
+        assert point_inside_box(
+            simulation.refpoints[f"readout_{index}_short"], simulation.box
+        )
         assert readout_short_has_no_open_gap_cap(
             simulation,
             index,
@@ -191,7 +231,6 @@ def run_smoke_check(simulations, export_path):
 
     assert (export_path / "simulation.oas").exists()
     assert (export_path / "simulation.bat").exists()
-    assert (export_path / SIMULATION_BATCH_FILENAME).exists()
 
 
 def parse_args():
@@ -226,7 +265,9 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
-    export_path = args.export_dir or create_or_empty_scdevice_tmp_directory(Path(__file__).stem + "_hfss")
+    export_path = args.export_dir or create_or_empty_scdevice_tmp_directory(
+        Path(__file__).stem + "_hfss"
+    )
     export_path.mkdir(parents=True, exist_ok=True)
 
     if args.summarize_only:
@@ -248,7 +289,7 @@ def main():
         sweep_count=args.sweep_count,
         maximum_passes=args.maximum_passes,
     )
-    configure_ansys_batch(export_path, simulations, "hfss")
+    make_simulation_bat_location_independent(export_path)
 
     if args.smoke_check:
         run_smoke_check(simulations, export_path)

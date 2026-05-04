@@ -1,5 +1,21 @@
 # Simulation Examples
 
+## SCDevice Simulation Workflow Policy
+
+SCDevice simulation code must reuse the KQCircuits simulation workflow directly. SCDevice scripts are only responsible
+for geometry construction, sweep case generation, and SCDevice-specific metadata.
+
+Required conventions:
+
+- Use KQCircuits APIs directly: `export_simulation_oas`, `export_ansys`, `export_elmer`, and `PostProcess`.
+- Do not create SCDevice-local Ansys batch wrappers or copied helper scripts.
+- Do not modify or replace KQCircuits Ansys helper conventions: `create_capacitive_pi_model.py`, `create_reports.py`,
+  `export_solution_data.py`, and `produce_cmatrix_table.py`.
+- Q3D capacitance matrix output follows KQCircuits PI-model convention. Diagonal terms are shunt/self PI terms and
+  off-diagonal terms are positive mutual PI terms.
+- SCDevice-specific target analysis, such as `C_sigma` or transmon frequency, must be a secondary report that reads KQ
+  standard outputs. It must not replace KQ result files or reinterpret raw matrices with a different convention.
+
 이 문서는 `SCDevice`에서 시뮬레이션 예제를 작게 실행하는 방법을 정리한다. 기본 순서는 smoke check, 작은 1-case export, HFSS batch 실행, 결과 summary다.
 
 큰 sweep은 처음부터 돌리지 않는다. 먼저 1-case export가 제대로 만들어지는지 확인한 뒤 필요한 파라미터만 명시해서 늘린다.
@@ -50,9 +66,8 @@ tmp\sqnl_readout_resonator_sweep_hfss
 ```text
 simulation.oas
 simulation.bat
-simulation_batch.json
 sqnl_ro_len_5200_cpl_400_gap_27.json
-scripts\import_simulation_batch.py
+scripts\import_and_simulate.py
 ```
 
 ## 2. Readout Resonator 1-Case HFSS Export
@@ -94,7 +109,7 @@ maximum-passes = 20
 
 ## 3. Run The Generated HFSS Batch
 
-export folder 안의 `simulation.bat`을 실행한다. batch 파일은 자기 위치로 이동한 뒤 `simulation_batch.json`을 읽어서 Ansys를 실행한다.
+export folder 안의 `simulation.bat`을 실행한다. 이 batch 파일은 KQCircuits `export_ansys`가 생성한 표준 Ansys import/simulate script를 실행한다.
 
 ```powershell
 Set-Location C:\Users\user\JSAHN\SCDevice\tmp\sqnl_readout_resonator_sweep_hfss
@@ -193,7 +208,7 @@ tmp\test_output_eigenmode
 
 `KQCircuits\tmp` 안에 export가 생기면 `KQC_TMP_PATH`가 적용되지 않은 것이다. 현재 terminal에서 `$env:KQC_TMP_PATH`를 확인하고, GUI나 새 terminal은 환경변수 설정 후 다시 시작한다.
 
-`simulation.bat`이 manifest를 못 찾으면 export folder가 아닌 다른 위치에서 실행했을 가능성이 크다. `simulation.bat`은 export folder 안에 있어야 하고, 같은 folder에 `simulation_batch.json`이 있어야 한다.
+`simulation.bat`이 project JSON이나 scripts folder를 못 찾으면 export folder가 아닌 다른 위치에서 실행했을 가능성이 크다. `simulation.bat`은 export folder 안에서 실행한다.
 
 `--summarize-only`에서 `No *_SMatrix.sNp files found`가 나오면 HFSS batch가 아직 `_SMatrix.s2p`를 쓰지 않은 것이다. 먼저 해당 export folder에서 `simulation.bat`을 실행한다.
 

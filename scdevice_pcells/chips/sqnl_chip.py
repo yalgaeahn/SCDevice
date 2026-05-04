@@ -80,6 +80,7 @@ class SqnlSingle(Chip):
         1200,
         unit="um",
     )
+    
     use_readout_resonators = Param(pdt.TypeBoolean, "Place readout resonators", True)
     use_qubits = Param(pdt.TypeBoolean, "Place qubits", False)
     use_test_resonators = Param(pdt.TypeBoolean, "Use test resonators", False)
