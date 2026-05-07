@@ -3,7 +3,6 @@
 import argparse
 import csv
 import logging
-import math
 import sys
 from itertools import product
 from pathlib import Path
@@ -28,15 +27,25 @@ from scdevice_pcells.junctions.direct_lead_sim import (
 from scdevice_pcells.qubits.double_pads_sqnl import DoublePadsSQNL
 from scdevice_pcells.simulations.export_paths import (
     SCDEVICE_TMP_PATH,
+    add_kq_post_process_tool_metadata,
     create_or_empty_scdevice_tmp_directory,
     make_simulation_bat_location_independent,
 )
-
-E_CHARGE = 1.602176634e-19
-PLANCK = 6.62607015e-34
-F01_TARGET_GHZ = 5.0
-EJ_EC_RATIO = 70.0
-C_SIGMA_TARGET_FF = 87.8
+from scdevice_pcells.simulations.transmon_targets import (
+    ANHARMONICITY_TARGET_GHZ,
+    C_SIGMA_TARGET_FF,
+    EC_TARGET_GHZ,
+    EJ_EC_TARGET_RATIO,
+    EJ_TARGET_GHZ,
+    F_EF_TARGET_GHZ,
+    F_GE_TARGET_GHZ,
+    F_GF_OVER_2_TARGET_GHZ,
+    IC_TARGET_NA,
+    JUNCTION_INDUCTANCE_H,
+    ROOM_TEMPERATURE_RESISTANCE_TARGET_OHM,
+    TARGET_SOURCE,
+    TARGET_URL,
+)
 
 CASE_CSV = "capacitance_cases.csv"
 TRANSMON_REPORT_CSV = "transmon_target_report.csv"
@@ -46,24 +55,19 @@ def format_value(value):
     return f"{float(value):g}".replace("-", "m").replace(".", "p")
 
 
-def c_sigma_for_target_ff(f01_ghz=F01_TARGET_GHZ, ratio=EJ_EC_RATIO):
-    ec_hz = f01_ghz * 1e9 / (math.sqrt(8 * ratio) - 1)
-    return E_CHARGE**2 / (2 * PLANCK * ec_hz) / 1e-15
-
-
 def base_case():
     return {
-        "width_um": 700.0,
-        "height_um": 200.0,
-        "island_island_gap_um": 70.0,
+        "width_um": 800.0,
+        "height_um": 150.0,
+        "island_island_gap_um": 40.0,
         "taper_width_um": 10.0,
         "taper_junction_width_um": 2.0,
         "coupler_width_um": 150.0,
         "coupler_height_um": 20.0,
-        "coupler_offset_um": 20.0,
+        "coupler_offset_um": 100.0,
         "coupler_a_um": 5.0,
         "ground_gap_width_um": 900.0,
-        "ground_gap_height_um": 700.0,
+        "ground_gap_height_um": 900.0,
     }
 
 
@@ -186,6 +190,7 @@ def simulation_parameters(case, args, index):
         "use_internal_ports": True,
         "use_ports": True,
         "waveguide_length": 200,
+        "junction_inductance": JUNCTION_INDUCTANCE_H,
         "junction_capacitance": args.junction_capacitance_ff * 1e-15,
         "ground_gap": [case["ground_gap_width_um"], case["ground_gap_height_um"]],
         "a": 5,
@@ -202,10 +207,21 @@ def simulation_parameters(case, args, index):
         "island2_taper_junction_width": case["taper_junction_width_um"],
         "extra_json_data": {
             "capacitance_geometry": geometry,
-            "capacitance_node_order": ["upper_island", "lower_island", "coupler"],
-            "target_f01_GHz": F01_TARGET_GHZ,
-            "target_EJ_EC_ratio": EJ_EC_RATIO,
+            "target_source": TARGET_SOURCE,
+            "target_url": TARGET_URL,
+            "target_Ec_GHz": EC_TARGET_GHZ,
+            "target_EJ_GHz": EJ_TARGET_GHZ,
+            "target_EJ_EC_ratio": EJ_EC_TARGET_RATIO,
             "target_C_sigma_fF": C_SIGMA_TARGET_FF,
+            "target_fge_GHz": F_GE_TARGET_GHZ,
+            "target_fef_GHz": F_EF_TARGET_GHZ,
+            "target_fgf_over_2_GHz": F_GF_OVER_2_TARGET_GHZ,
+            "target_anharmonicity_GHz": ANHARMONICITY_TARGET_GHZ,
+            "target_Ic_nA": IC_TARGET_NA,
+            "target_room_temperature_resistance_ohm": (
+                ROOM_TEMPERATURE_RESISTANCE_TARGET_OHM
+            ),
+            "junction_inductance_nH": JUNCTION_INDUCTANCE_H / 1e-9,
             "junction_capacitance_fF": args.junction_capacitance_ff,
             "sim_junction_type": SQNL_DIRECT_LEAD_SIM,
             "direct_lead_attach_span_um": DIRECT_LEAD_ATTACH_SPAN_UM,
@@ -245,6 +261,7 @@ def write_case_metadata(simulations, export_path):
                 "junction_attach_2_x_um": lower.x,
                 "junction_attach_2_y_um": lower.y,
                 "junction_attach_span_um": upper.y - lower.y,
+                "junction_inductance_nH": metadata["junction_inductance_nH"],
                 "junction_capacitance_fF": metadata["junction_capacitance_fF"],
             }
         )
@@ -308,6 +325,7 @@ def export_backend(simulations, export_path, args):
             minimum_passes=2,
             minimum_converged_passes=2,
         )
+        add_kq_post_process_tool_metadata(export_path)
         make_simulation_bat_location_independent(export_path)
     return oas
 
@@ -369,12 +387,14 @@ def parse_args():
 def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-    target_c = c_sigma_for_target_ff()
     logging.info(
-        "Target f01=%.3f GHz, EJ/EC=%.1f, C_sigma=%.3f fF.",
-        F01_TARGET_GHZ,
-        EJ_EC_RATIO,
-        target_c,
+        "Target from %s: fge=%.5f GHz, fef=%.5f GHz, alpha=%.3f GHz, C_sigma=%.4f fF, LJ=%.5f nH.",
+        TARGET_SOURCE,
+        F_GE_TARGET_GHZ,
+        F_EF_TARGET_GHZ,
+        ANHARMONICITY_TARGET_GHZ,
+        C_SIGMA_TARGET_FF,
+        JUNCTION_INDUCTANCE_H / 1e-9,
     )
 
     export_path = prepare_export_path(args)

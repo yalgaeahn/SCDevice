@@ -22,7 +22,7 @@ class DoublePadsSQNL(Qubit):
     """SCDevice double-pads qubit with local junction customization hooks."""
 
     ground_gap = Param(
-        pdt.TypeList, "Width, height of the ground gap (µm, µm)", [900, 700]
+        pdt.TypeList, "Width, height of the ground gap (µm, µm)", [900, 900]
     )
     ground_gap_r = Param(pdt.TypeDouble, "Ground gap rounding radius", 50, unit="μm")
     coupler_extent = Param(
@@ -36,19 +36,19 @@ class DoublePadsSQNL(Qubit):
         unit="μm",
     )
     coupler_offset = Param(
-        pdt.TypeDouble, "Distance from first qubit island to coupler", 20, unit="μm"
+        pdt.TypeDouble, "Distance from first qubit island to coupler", 100, unit="μm"
     )
     squid_offset = Param(
         pdt.TypeDouble, "Offset between SQUID center and qubit center", 0, unit="μm"
     )
     island1_extent = Param(
-        pdt.TypeList, "Width, height of the first qubit island (µm, µm)", [700, 200]
+        pdt.TypeList, "Width, height of the first qubit island (µm, µm)", [800, 150]
     )
     island1_r = Param(
         pdt.TypeDouble, "First qubit island rounding radius", 50, unit="μm"
     )
     island2_extent = Param(
-        pdt.TypeList, "Width, height of the second qubit island (µm, µm)", [700, 200]
+        pdt.TypeList, "Width, height of the second qubit island (µm, µm)", [800, 150]
     )
     island2_r = Param(
         pdt.TypeDouble, "Second qubit island rounding radius", 50, unit="μm"
@@ -82,7 +82,7 @@ class DoublePadsSQNL(Qubit):
     )
 
     island_island_gap = Param(
-        pdt.TypeDouble, "Island to island gap distance", 70, unit="µm"
+        pdt.TypeDouble, "Island to island gap distance", 40, unit="µm"
     )
     with_squid = Param(pdt.TypeBoolean, "Boolean whether to include the squid", True)
 

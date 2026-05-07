@@ -2,6 +2,23 @@
 
 ## SCDevice Simulation Workflow Policy
 
+Current DoublePadsSQNL transmon target values come from the Anton Potocnik transmon calculator
+(`https://antonpotocnik.com/?p=560257`) and are treated as the source of truth for capacitance geometry targeting:
+
+- `E_C / h = 0.22 GHz`
+- `C_sigma = 88.0474 fF`
+- `E_J / h = 16.3332 GHz`
+- `L_J = 9.99997 nH`
+- `I_C = 32.8974 nA`
+- `R_N = 8403.70 ohm`
+- `f_ge = 5.14157 GHz`
+- `f_ef = 4.92157 GHz`
+- `f_gf / 2 = 5.03157 GHz`
+- `anharmonicity = 0.22 GHz`
+
+The code source of truth is `scdevice_pcells/simulations/transmon_targets.py`; simulation scripts should import these
+constants instead of redefining local target values.
+
 SCDevice simulation code must reuse the KQCircuits simulation workflow directly. SCDevice scripts are only responsible
 for geometry construction, sweep case generation, and SCDevice-specific metadata.
 

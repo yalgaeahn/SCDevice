@@ -1,5 +1,6 @@
 """Local export path helpers for SCDevice simulations."""
 
+import json
 from pathlib import Path
 from shutil import rmtree
 
@@ -38,3 +39,13 @@ def make_simulation_bat_location_independent(export_path, file_prefix="simulatio
     lines.insert(insert_at, "cd /d %~dp0")
     bat_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return bat_path
+
+
+def add_kq_post_process_tool_metadata(export_path):
+    """Add the top-level ``tool`` key expected by KQ post-process scripts."""
+    for json_path in Path(export_path).glob("*.json"):
+        data = json.loads(json_path.read_text(encoding="utf-8-sig"))
+        if "tool" in data or "ansys_tool" not in data:
+            continue
+        data["tool"] = data["ansys_tool"]
+        json_path.write_text(json.dumps(data, indent=4), encoding="utf-8", newline="\n")
