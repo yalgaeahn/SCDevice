@@ -127,6 +127,7 @@ def run_smoke_check(simulation, export_path, args):
     simulation_bat = (export_path / "simulation.bat").read_text(encoding="utf-8")
     if args.with_pyepr:
         assert "run_pyepr_t1_estimate.py" in simulation_bat
+        assert "python_sitecustomize" in simulation_bat
     else:
         assert "run_pyepr_t1_estimate.py" not in simulation_bat
 

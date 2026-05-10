@@ -26,6 +26,7 @@ from scdevice_pcells.qubits.double_pads_sqnl import DoublePadsSQNL
 from scdevice_pcells.simulations.double_pads_sqnl_capacitance import (
     assert_direct_taper_junction_port,
     case_name,
+    double_pads_default,
     get_cases,
 )
 from scdevice_pcells.simulations.export_paths import (
@@ -140,8 +141,8 @@ def simulation_parameters(case, args, index, mode):
         "junction_inductance": JUNCTION_INDUCTANCE_H,
         "junction_capacitance": args.junction_capacitance_ff * 1e-15,
         "ground_gap": [case["ground_gap_width_um"], case["ground_gap_height_um"]],
-        "a": 5,
-        "b": 20,
+        "a": float(double_pads_default("a")),
+        "b": float(double_pads_default("b")),
         "coupler_a": case["coupler_a_um"],
         "coupler_extent": [case["coupler_width_um"], case["coupler_height_um"]],
         "coupler_offset": case["coupler_offset_um"],
@@ -280,6 +281,8 @@ def run_smoke_check(simulations, export_path, mode):
     settings = EIGENMODE_DEFAULTS[mode]
     bat_text = (export_path / "simulation.bat").read_text(encoding="utf-8")
     assert ("run_pyepr_t1_estimate.py" in bat_text) == (mode == "pyepr")
+    if mode == "pyepr":
+        assert "python_sitecustomize" in bat_text
 
     for simulation in simulations:
         exported = load_exported_json(export_path, simulation)

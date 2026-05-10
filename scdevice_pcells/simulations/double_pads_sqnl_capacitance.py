@@ -55,19 +55,61 @@ def format_value(value):
     return f"{float(value):g}".replace("-", "m").replace(".", "p")
 
 
+def double_pads_default(name):
+    return DoublePadsSQNL.get_schema()[name].default
+
+
+def double_pads_default_pair(name):
+    values = double_pads_default(name)
+    if len(values) != 2:
+        raise ValueError(f"Expected DoublePadsSQNL.{name} default to have two values.")
+    return [float(value) for value in values]
+
+
+def symmetric_double_pads_default_pair(first_name, second_name):
+    first = double_pads_default_pair(first_name)
+    second = double_pads_default_pair(second_name)
+    if first != second:
+        raise ValueError(
+            "The capacitance/eigenmode base case expects symmetric DoublePadsSQNL "
+            f"defaults, but {first_name}={first} and {second_name}={second}."
+        )
+    return first
+
+
+def symmetric_double_pads_default(first_name, second_name):
+    first = float(double_pads_default(first_name))
+    second = float(double_pads_default(second_name))
+    if first != second:
+        raise ValueError(
+            "The capacitance/eigenmode base case expects symmetric DoublePadsSQNL "
+            f"defaults, but {first_name}={first} and {second_name}={second}."
+        )
+    return first
+
+
 def base_case():
+    island_extent = symmetric_double_pads_default_pair(
+        "island1_extent", "island2_extent"
+    )
+    coupler_extent = double_pads_default_pair("coupler_extent")
+    ground_gap = double_pads_default_pair("ground_gap")
     return {
-        "width_um": 800.0,
-        "height_um": 150.0,
-        "island_island_gap_um": 40.0,
-        "taper_width_um": 10.0,
-        "taper_junction_width_um": 2.0,
-        "coupler_width_um": 150.0,
-        "coupler_height_um": 20.0,
-        "coupler_offset_um": 100.0,
-        "coupler_a_um": 5.0,
-        "ground_gap_width_um": 900.0,
-        "ground_gap_height_um": 900.0,
+        "width_um": island_extent[0],
+        "height_um": island_extent[1],
+        "island_island_gap_um": float(double_pads_default("island_island_gap")),
+        "taper_width_um": symmetric_double_pads_default(
+            "island1_taper_width", "island2_taper_width"
+        ),
+        "taper_junction_width_um": symmetric_double_pads_default(
+            "island1_taper_junction_width", "island2_taper_junction_width"
+        ),
+        "coupler_width_um": coupler_extent[0],
+        "coupler_height_um": coupler_extent[1],
+        "coupler_offset_um": float(double_pads_default("coupler_offset")),
+        "coupler_a_um": float(double_pads_default("coupler_a")),
+        "ground_gap_width_um": ground_gap[0],
+        "ground_gap_height_um": ground_gap[1],
     }
 
 
@@ -193,8 +235,8 @@ def simulation_parameters(case, args, index):
         "junction_inductance": JUNCTION_INDUCTANCE_H,
         "junction_capacitance": args.junction_capacitance_ff * 1e-15,
         "ground_gap": [case["ground_gap_width_um"], case["ground_gap_height_um"]],
-        "a": 5,
-        "b": 20,
+        "a": float(double_pads_default("a")),
+        "b": float(double_pads_default("b")),
         "coupler_a": case["coupler_a_um"],
         "coupler_extent": [case["coupler_width_um"], case["coupler_height_um"]],
         "coupler_offset": case["coupler_offset_um"],
