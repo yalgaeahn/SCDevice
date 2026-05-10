@@ -7,7 +7,6 @@ import logging
 import sys
 from pathlib import Path
 
-from kqcircuits.defaults import default_faces
 from kqcircuits.pya_resolver import pya
 from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.simulation_export import export_simulation_oas
@@ -20,11 +19,12 @@ from kqcircuits.util.export_helper import open_with_klayout_or_default_applicati
 from scdevice_pcells.junctions import SQNL_DIRECT_LEAD_SIM
 from scdevice_pcells.junctions.direct_lead_sim import (
     DIRECT_LEAD_ATTACH_SPAN_UM,
-    SURROGATE_PAD_LENGTH_UM,
-    SURROGATE_PAD_WIDTH_UM,
+    JUNCTION_TERMINAL_MODEL,
+    SURROGATE_PADS_ENABLED,
 )
 from scdevice_pcells.qubits.double_pads_sqnl import DoublePadsSQNL
 from scdevice_pcells.simulations.double_pads_sqnl_capacitance import (
+    assert_direct_taper_junction_port,
     case_name,
     get_cases,
 )
@@ -120,8 +120,10 @@ def target_metadata(junction_capacitance_ff):
         "junction_capacitance_fF": junction_capacitance_ff,
         "sim_junction_type": SQNL_DIRECT_LEAD_SIM,
         "direct_lead_attach_span_um": DIRECT_LEAD_ATTACH_SPAN_UM,
-        "surrogate_pad_width_um": SURROGATE_PAD_WIDTH_UM,
-        "surrogate_pad_length_um": SURROGATE_PAD_LENGTH_UM,
+        "junction_terminal_model": JUNCTION_TERMINAL_MODEL,
+        "surrogate_pads_enabled": SURROGATE_PADS_ENABLED,
+        "surrogate_pad_width_um": 0.0,
+        "surrogate_pad_length_um": 0.0,
     }
 
 
@@ -269,15 +271,6 @@ def first_value(value):
     return value
 
 
-def assert_base_metal_addition_present(simulation):
-    layer_info = default_faces["1t1"]["base_metal_addition"]
-    layer_index = simulation.layout.layer(layer_info)
-    region = pya.Region(simulation.cell.begin_shapes_rec(layer_index))
-    assert (
-        not region.is_empty()
-    ), "base_metal_addition must contain surrogate pads for direct lead sim."
-
-
 def run_smoke_check(simulations, export_path, mode):
     assert simulations, "No simulations were created."
     assert (export_path / "simulation.oas").exists(), "Missing simulation.oas."
@@ -314,6 +307,10 @@ def run_smoke_check(simulations, export_path, mode):
         assert metadata["eigenmode_mode"] == mode
         assert metadata["target_source"] == TARGET_SOURCE
         assert metadata["target_C_sigma_fF"] == C_SIGMA_TARGET_FF
+        assert metadata["junction_terminal_model"] == JUNCTION_TERMINAL_MODEL
+        assert metadata["surrogate_pads_enabled"] is False
+        assert metadata["surrogate_pad_width_um"] == 0.0
+        assert metadata["surrogate_pad_length_um"] == 0.0
 
         junction_ports = [port for port in exported["ports"] if port["junction"]]
         assert junction_ports, "Missing junction internal port."
@@ -328,7 +325,7 @@ def run_smoke_check(simulations, export_path, mode):
         assert abs(lower.x - center.x) < 1e-6
         assert abs(midpoint_y - (center.y + simulation.squid_offset)) < 1e-6
         assert abs((upper.y - lower.y) - DIRECT_LEAD_ATTACH_SPAN_UM) < 1e-3
-        assert_base_metal_addition_present(simulation)
+        assert_direct_taper_junction_port(simulation)
 
 
 def parse_args():

@@ -7,7 +7,6 @@ import sys
 from itertools import product
 from pathlib import Path
 
-from kqcircuits.defaults import default_faces
 from kqcircuits.pya_resolver import pya
 from kqcircuits.simulations.export.ansys.ansys_export import export_ansys
 from kqcircuits.simulations.export.elmer.elmer_export import export_elmer
@@ -21,8 +20,8 @@ from kqcircuits.util.export_helper import open_with_klayout_or_default_applicati
 from scdevice_pcells.junctions import SQNL_DIRECT_LEAD_SIM
 from scdevice_pcells.junctions.direct_lead_sim import (
     DIRECT_LEAD_ATTACH_SPAN_UM,
-    SURROGATE_PAD_LENGTH_UM,
-    SURROGATE_PAD_WIDTH_UM,
+    JUNCTION_TERMINAL_MODEL,
+    SURROGATE_PADS_ENABLED,
 )
 from scdevice_pcells.qubits.double_pads_sqnl import DoublePadsSQNL
 from scdevice_pcells.simulations.export_paths import (
@@ -49,6 +48,7 @@ from scdevice_pcells.simulations.transmon_targets import (
 
 CASE_CSV = "capacitance_cases.csv"
 TRANSMON_REPORT_CSV = "transmon_target_report.csv"
+TRANSMON_REPORT_SCRIPT = "produce_transmon_target_report.py"
 
 
 def format_value(value):
@@ -225,8 +225,10 @@ def simulation_parameters(case, args, index):
             "junction_capacitance_fF": args.junction_capacitance_ff,
             "sim_junction_type": SQNL_DIRECT_LEAD_SIM,
             "direct_lead_attach_span_um": DIRECT_LEAD_ATTACH_SPAN_UM,
-            "surrogate_pad_width_um": SURROGATE_PAD_WIDTH_UM,
-            "surrogate_pad_length_um": SURROGATE_PAD_LENGTH_UM,
+            "junction_terminal_model": JUNCTION_TERMINAL_MODEL,
+            "surrogate_pads_enabled": SURROGATE_PADS_ENABLED,
+            "surrogate_pad_width_um": 0.0,
+            "surrogate_pad_length_um": 0.0,
         },
     }
 
@@ -278,6 +280,18 @@ def write_rows_csv(path, rows):
         writer.writerows(rows)
 
 
+def capacitance_post_processes():
+    scdevice_post_process_path = Path(__file__).resolve().with_name("post_process")
+    return [
+        PostProcess("produce_cmatrix_table.py"),
+        PostProcess(TRANSMON_REPORT_SCRIPT, folder=str(scdevice_post_process_path)),
+    ]
+
+
+def transmon_report_script_path():
+    return Path(__file__).resolve().with_name("post_process") / TRANSMON_REPORT_SCRIPT
+
+
 def prepare_export_path(args):
     if args.export_dir:
         path = args.export_dir
@@ -297,7 +311,7 @@ def export_backend(simulations, export_path, args):
             simulations,
             export_path,
             tool="capacitance",
-            post_process=PostProcess("produce_cmatrix_table.py"),
+            post_process=capacitance_post_processes(),
             workflow={
                 "python_executable": "python",
                 "n_workers": 4,
@@ -319,7 +333,7 @@ def export_backend(simulations, export_path, args):
             ansys_tool="q3d",
             path=export_path,
             exit_after_run=True,
-            post_process=PostProcess("produce_cmatrix_table.py"),
+            post_process=capacitance_post_processes(),
             percent_error=0.2,
             maximum_passes=10,
             minimum_passes=2,
@@ -330,13 +344,30 @@ def export_backend(simulations, export_path, args):
     return oas
 
 
-def assert_base_metal_addition_present(simulation):
-    layer_info = default_faces["1t1"]["base_metal_addition"]
-    layer_index = simulation.layout.layer(layer_info)
-    region = pya.Region(simulation.cell.begin_shapes_rec(layer_index))
-    assert (
-        not region.is_empty()
-    ), "base_metal_addition must contain surrogate pads for direct lead sim."
+def assert_point_close(actual, expected, label):
+    assert actual.distance(expected) < 1e-6, (
+        f"{label} mismatch: got ({actual.x}, {actual.y}), "
+        f"expected ({expected.x}, {expected.y})."
+    )
+
+
+def assert_direct_taper_junction_port(simulation):
+    upper = simulation.refpoints["junction_attach_island_1"]
+    lower = simulation.refpoints["junction_attach_island_2"]
+    assert_point_close(simulation.refpoints["port_squid_a"], upper, "port_squid_a")
+    assert_point_close(simulation.refpoints["port_squid_b"], lower, "port_squid_b")
+
+    junction_ports = [
+        port for port in simulation.ports if getattr(port, "junction", False)
+    ]
+    assert junction_ports, "Missing junction internal port."
+    for port in junction_ports:
+        assert abs(port.inductance - JUNCTION_INDUCTANCE_H) < 1e-15
+        assert hasattr(port, "ground_location"), "Junction port must have two ends."
+        assert abs(port.signal_location.x - upper.x) < 1e-6
+        assert abs(port.ground_location.x - lower.x) < 1e-6
+        assert abs(port.signal_location.y - (upper.y + simulation.over_etching)) < 1e-6
+        assert abs(port.ground_location.y - (lower.y - simulation.over_etching)) < 1e-6
 
 
 def run_smoke_check(simulations, export_path, backend):
@@ -351,11 +382,14 @@ def run_smoke_check(simulations, export_path, backend):
         assert (
             export_path / "scripts" / "run.py"
         ).exists(), "Elmer export did not write scripts/run.py."
+        assert transmon_report_script_path().exists()
     else:
         bat_path = export_path / "simulation.bat"
         assert bat_path.exists()
         bat_text = bat_path.read_text(encoding="utf-8")
         assert "produce_cmatrix_table.py" in bat_text
+        assert TRANSMON_REPORT_SCRIPT in bat_text
+        assert str(transmon_report_script_path()) in bat_text
 
     for simulation in simulations:
         upper = simulation.refpoints["junction_attach_island_1"]
@@ -366,8 +400,13 @@ def run_smoke_check(simulations, export_path, backend):
         assert abs(lower.x - center.x) < 1e-6
         assert abs(midpoint_y - (center.y + simulation.squid_offset)) < 1e-6
         assert abs((upper.y - lower.y) - DIRECT_LEAD_ATTACH_SPAN_UM) < 1e-3
-        assert any(getattr(port, "junction", False) for port in simulation.ports)
-        assert_base_metal_addition_present(simulation)
+        assert simulation.extra_json_data["junction_terminal_model"] == (
+            JUNCTION_TERMINAL_MODEL
+        )
+        assert simulation.extra_json_data["surrogate_pads_enabled"] is False
+        assert simulation.extra_json_data["surrogate_pad_width_um"] == 0.0
+        assert simulation.extra_json_data["surrogate_pad_length_um"] == 0.0
+        assert_direct_taper_junction_port(simulation)
 
 
 def parse_args():
