@@ -55,26 +55,31 @@ MODES = ("fast", "pyepr")
 EIGENMODE_DEFAULTS = {
     "fast": {
         "n_modes": 1,
-        "min_frequency": 0.5,
+        "min_frequency": 3.5,
         "max_delta_f": 0.05,
-        "mesh_gap": 50,
         "maximum_passes": 8,
         "minimum_passes": 1,
         "minimum_converged_passes": 1,
+        "mesh_size": {
+            "1t1_signal_1": 10,
+            "1t1_signal_3": 10,
+        },
         "simulation_flags": [],
     },
     "pyepr": {
         "n_modes": 1,
-        "min_frequency": 0.5,
-        "max_delta_f": 0.008,
-        "mesh_gap": 25,
-        "maximum_passes": 17,
+        "min_frequency": 3.5,
+        "max_delta_f": 0.02,
+        "maximum_passes": 10,
         "minimum_passes": 1,
-        "minimum_converged_passes": 2,
+        "minimum_converged_passes": 1,
+        "mesh_size": {
+            "1t1_signal_1": 10,
+            "1t1_signal_3": 10,
+        },
         "simulation_flags": ["pyepr"],
     },
 }
-
 
 def pyepr_post_process():
     return PostProcess(
@@ -248,7 +253,7 @@ def export_mode(simulations, export_path, args, mode):
         min_frequency=settings["min_frequency"],
         max_delta_f=settings["max_delta_f"],
         n_modes=settings["n_modes"],
-        mesh_size={"1t1_gap": settings["mesh_gap"]},
+        mesh_size=settings["mesh_size"],
         maximum_passes=settings["maximum_passes"],
         minimum_passes=settings["minimum_passes"],
         minimum_converged_passes=settings["minimum_converged_passes"],
@@ -295,7 +300,7 @@ def run_smoke_check(simulations, export_path, mode):
         assert analysis_setup["n_modes"] == settings["n_modes"]
         assert analysis_setup["min_frequency"] == settings["min_frequency"]
         assert analysis_setup["max_delta_f"] == settings["max_delta_f"]
-        assert exported["mesh_size"] == {"1t1_gap": settings["mesh_gap"]}
+        assert exported["mesh_size"] == settings["mesh_size"]
         assert flags == settings["simulation_flags"]
 
         tls_thickness = first_value(parameters.get("tls_layer_thickness", [0.0]))

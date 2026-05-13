@@ -22,7 +22,7 @@ class DoublePadsSQNL(Qubit):
     """SCDevice double-pads qubit with local junction customization hooks."""
 
     ground_gap = Param(
-        pdt.TypeList, "Width, height of the ground gap (µm, µm)", [1000, 900]
+        pdt.TypeList, "Width, height of the ground gap (µm, µm)", [1000, 765]
     )
     ground_gap_r = Param(pdt.TypeDouble, "Ground gap rounding radius", 50, unit="μm")
     coupler_extent = Param(
@@ -42,16 +42,16 @@ class DoublePadsSQNL(Qubit):
         pdt.TypeDouble, "Offset between SQUID center and qubit center", 0, unit="μm"
     )
     island1_extent = Param(
-        pdt.TypeList, "Width, height of the first qubit island (µm, µm)", [800, 150]
+        pdt.TypeList, "Width, height of the first qubit island (µm, µm)", [800, 150] #800, 150
     )
     island1_r = Param(
-        pdt.TypeDouble, "First qubit island rounding radius", 50, unit="μm"
+        pdt.TypeDouble, "First qubit island rounding radius", 25, unit="μm"
     )
     island2_extent = Param(
         pdt.TypeList, "Width, height of the second qubit island (µm, µm)", [800, 150]
     )
     island2_r = Param(
-        pdt.TypeDouble, "Second qubit island rounding radius", 50, unit="μm"
+        pdt.TypeDouble, "Second qubit island rounding radius", 25, unit="μm"
     )
     drive_position = Param(
         pdt.TypeList, "Coordinate for the drive port (µm, µm)", [-450, 0]
@@ -59,7 +59,7 @@ class DoublePadsSQNL(Qubit):
     island1_taper_width = Param(
         pdt.TypeDouble,
         "First qubit island tapering width on the island side",
-        18,
+        18,#should be 19
         unit="µm",
     )
     island1_taper_junction_width = Param(

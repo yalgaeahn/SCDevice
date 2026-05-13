@@ -218,6 +218,14 @@ def first_value(value):
     return value[0] if isinstance(value, list) else value
 
 
+def layer_excitations(exported):
+    return {
+        layer_data["excitation"]
+        for layer_data in exported["layers"].values()
+        if isinstance(layer_data, dict) and "excitation" in layer_data
+    }
+
+
 def run_smoke_check(simulations, correction_simulations, export_path):
     assert simulations, "No simulations were created."
     assert correction_simulations, "No correction simulations were created."
@@ -229,6 +237,7 @@ def run_smoke_check(simulations, correction_simulations, export_path):
 
     expected_partition_names = {
         "junctiongapmer",
+        "junctiontipmer",
         "tapermer",
         "couplerfeedmer",
         "couplerpaddlemer",
@@ -281,6 +290,11 @@ def run_smoke_check(simulations, correction_simulations, export_path):
         assert exported["mesh_size"].get("ms_layer_mer") == 0.0005
         assert exported["mesh_size"].get("sa_layer_mer") == 0.0005
         assert any(layer_name.endswith("_mer") for layer_name in exported["layers"])
+        excitations = layer_excitations(exported)
+        assert 0 in excitations, f"Missing reference ground in {correction_simulation.name}."
+        assert any(excitation > 0 for excitation in excitations if excitation is not None), (
+            f"Missing signal conductor in {correction_simulation.name}."
+        )
 
 
 def parse_args():
