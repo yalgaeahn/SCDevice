@@ -48,20 +48,17 @@ from scdevice_pcells.simulations.transmon_targets import (
     TARGET_URL,
 )
 
-DEFAULT_READOUT_RES_LENGTH = 5000
-DEFAULT_READOUT_COUPLING_LENGTH = 400
-DEFAULT_FEEDLINE_Y = 5000
 MODES = ("fast", "pyepr")
 
 EIGENMODE_DEFAULTS = {
     "fast": {
-        "min_frequency": 0.5,
-        "n_modes": 4,
+        "min_frequency": 3.5,
+        "n_modes": 3,
         "max_delta_f": 0.05,
-        "maximum_passes": 8,
+        "maximum_passes": 10,
         "minimum_passes": 1,
         "minimum_converged_passes": 1,
-        "mesh_gap": 50,
+        "mesh_gap": 30,
         "simulation_flags": [],
     },
     "pyepr": {
@@ -92,6 +89,15 @@ JUNCTION_REFPOINT_CANDIDATES = (
     ("qb_0_junction_attach_island_1", "qb_0_junction_attach_island_2"),
     ("junction_attach_island_1", "junction_attach_island_2"),
 )
+
+
+def chip_default(name):
+    return SqnlSingle.get_schema()[name].default
+
+
+def first_chip_default(name):
+    value = chip_default(name)
+    return value[0] if isinstance(value, list) else value
 
 
 def pyepr_post_process():
@@ -183,7 +189,7 @@ def static_cell_for_simulation(cell):
 
 def selected_readout_parameters(args):
     selected_length = (
-        DEFAULT_READOUT_RES_LENGTH if args.length is None else args.length
+        first_chip_default("readout_res_lengths") if args.length is None else args.length
     )
     return selected_length, [selected_length], [args.coupling_length]
 
@@ -207,8 +213,8 @@ def build_sqnl_chip_v1_cell(layout, args):
         readout_feedline_gap=args.gap,
         readout_turn_radius=args.turn_radius,
         readout_meander_width=args.meander_width,
-        feedline_y=DEFAULT_FEEDLINE_Y,
-        feedline_x_distance=1200,
+        feedline_y=chip_default("feedline_y"),
+        feedline_x_distance=chip_default("feedline_x_distance"),
         use_readout_resonators=True,
         use_qubits=True,
     )
@@ -224,8 +230,9 @@ def crop_box_for_chip_v1(refpoints, args):
     if left < refpoints["W_port"].x or right > refpoints["E_port"].x:
         raise ValueError("Crop x range must stay inside the straight W-E feedline segment.")
 
+    feedline_y = chip_default("feedline_y")
     return pya.DBox(
-        pya.DPoint(left, DEFAULT_FEEDLINE_Y - args.crop_feedline_margin),
+        pya.DPoint(left, feedline_y - args.crop_feedline_margin),
         pya.DPoint(right, base.y + args.crop_qubit_margin),
     )
 
@@ -454,15 +461,15 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["fast", "pyepr", "both"], default="fast")
     parser.add_argument("--length", type=float)
-    parser.add_argument("--coupling-length", type=float, default=DEFAULT_READOUT_COUPLING_LENGTH)
-    parser.add_argument("--gap", type=float, default=27)
-    parser.add_argument("--turn-radius", type=float, default=50)
-    parser.add_argument("--meander-width", type=float, default=350)
+    parser.add_argument("--coupling-length", type=float, default=first_chip_default("readout_coupling_lengths"))
+    parser.add_argument("--gap", type=float, default=chip_default("readout_feedline_gap"))
+    parser.add_argument("--turn-radius", type=float, default=chip_default("readout_turn_radius"))
+    parser.add_argument("--meander-width", type=float, default=chip_default("readout_meander_width"))
     parser.add_argument("--crop-half-width", type=float, default=1000)
     parser.add_argument("--crop-feedline-margin", type=float, default=500)
     parser.add_argument("--crop-qubit-margin", type=float, default=800)
-    parser.add_argument("--center-trace-width", type=float, default=10)
-    parser.add_argument("--gap-width", type=float, default=6)
+    parser.add_argument("--center-trace-width", type=float, default=chip_default("a"))
+    parser.add_argument("--gap-width", type=float, default=chip_default("b"))
     parser.add_argument("--junction-capacitance-ff", type=float, default=0.1)
     parser.add_argument("--min-frequency", type=float)
     parser.add_argument("--n-modes", type=int)
