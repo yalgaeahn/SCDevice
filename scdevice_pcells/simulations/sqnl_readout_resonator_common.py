@@ -9,8 +9,6 @@ from kqcircuits.pya_resolver import pya
 from kqcircuits.simulations.empty_simulation import EmptySimulation
 from kqcircuits.simulations.port import EdgePort
 
-from scdevice_pcells.chips.sqnl_chip import SqnlSingle
-
 
 DEFAULT_READOUT_RES_LENGTHS = [5000, 5100, 5200, 5300, 5400, 5500]
 DEFAULT_READOUT_COUPLING_LENGTHS = [400] * 6
@@ -85,6 +83,8 @@ def selected_readout_parameters(resonator_index, resonator_length=None, coupling
 
 
 def build_sqnl_cell(layout, args, resonator_length=None):
+    from scdevice_pcells.chips.sqnl_chip import SqnlSingle
+
     selected_length, readout_res_lengths, readout_coupling_lengths = selected_readout_parameters(
         args.resonator_index,
         resonator_length,

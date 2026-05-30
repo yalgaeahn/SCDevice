@@ -57,7 +57,7 @@ class SqnlSingle(Chip):
         pdt.TypeList, "Readout resonator lengths", [4900]
     )
     readout_coupling_lengths = Param(
-        pdt.TypeList, "Readout resonator feedline coupling lengths", [400]
+        pdt.TypeList, "Readout resonator feedline coupling lengths", [400] #400
     )
     readout_feedline_gap = Param(
         pdt.TypeDouble,
@@ -77,6 +77,7 @@ class SqnlSingle(Chip):
     
     use_readout_resonators = Param(pdt.TypeBoolean, "Place readout resonators", True)
     use_qubits = Param(pdt.TypeBoolean, "Place qubits", True)
+    use_feedline = Param(pdt.TypeBoolean, "Place feedline", True)
     use_test_resonators = Param(pdt.TypeBoolean, "Use test resonators", False)
     test_res_lengths = Param(pdt.TypeList, "Test resonator lengths (four resonators)", [5200, 5400, 5600, 5800])
     n_fingers = Param(pdt.TypeList, "Number of fingers for test resonator couplers", [4, 4, 2, 4])
@@ -110,11 +111,12 @@ class SqnlSingle(Chip):
         if self.use_readout_resonators:
             self._produce_readout_resonators()
 
-        feedline_x_distance = float(self.feedline_x_distance)
-        if self.use_test_resonators:
-            self._produce_feedline_and_test_resonators(feedline_x_distance)
-        else:
-            self._produce_feedline(feedline_x_distance)
+        if self.use_feedline:
+            feedline_x_distance = float(self.feedline_x_distance)
+            if self.use_test_resonators:
+                self._produce_feedline_and_test_resonators(feedline_x_distance)
+            else:
+                self._produce_feedline(feedline_x_distance)
 
         # Charge lines still depend on the old eight-launcher layout, so they are disabled here.
 

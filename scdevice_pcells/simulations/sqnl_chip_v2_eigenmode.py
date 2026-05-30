@@ -1,4 +1,4 @@
-"""Eigenmode export for an SQNL chip v1 qubit/readout/feedline crop."""
+"""Eigenmode export for an SQNL chip v2 qubit/readout/feedline crop."""
 
 import argparse
 import json
@@ -15,7 +15,8 @@ from kqcircuits.simulations.export.simulation_export import export_simulation_oa
 from kqcircuits.simulations.port import EdgePort, InternalPort
 from kqcircuits.simulations.post_process import PostProcess
 
-from scdevice_pcells.chips.sqnl_chip_v1 import SqnlSingle
+from scdevice_pcells.chips.sqnl_chip_v2 import SqnlSingleV2 as SqnlSingle
+from scdevice_pcells.chips.sqnl_chip_v2 import V1_QUBIT_SPACING_Y, V2_QUBIT_SPACING_Y
 from scdevice_pcells.junctions import SQNL_DIRECT_LEAD_SIM
 from scdevice_pcells.junctions.direct_lead_sim import (
     DIRECT_LEAD_ATTACH_SPAN_UM,
@@ -29,7 +30,6 @@ from scdevice_pcells.simulations.export_paths import (
 from scdevice_pcells.simulations.sqnl_readout_resonator_common import (
     format_value,
     point_inside_box,
-    readout_short_has_no_open_gap_cap,
     suppress_from_cell_cell_warning,
 )
 from scdevice_pcells.simulations.transmon_targets import (
@@ -55,7 +55,7 @@ EIGENMODE_DEFAULTS = {
         "min_frequency": 3.5,
         "n_modes": 3,
         "max_delta_f": 0.05,
-        "maximum_passes": 10,
+        "maximum_passes": 6,
         "minimum_passes": 1,
         "minimum_converged_passes": 1,
         "mesh_gap": 30,
@@ -188,13 +188,11 @@ def static_cell_for_simulation(cell):
 
 
 def selected_readout_parameters(args):
-    selected_length = (
-        first_chip_default("readout_res_lengths") if args.length is None else args.length
-    )
+    selected_length = first_chip_default("readout_res_lengths")
     return selected_length, [selected_length], [args.coupling_length]
 
 
-def build_sqnl_chip_v1_cell(layout, args):
+def build_sqnl_chip_v2_cell(layout, args):
     selected_length, readout_res_lengths, readout_coupling_lengths = (
         selected_readout_parameters(args)
     )
@@ -256,10 +254,11 @@ def make_readout_metadata(
         "gap_width": args.gap_width,
         "readout_res_lengths": readout_res_lengths,
         "readout_coupling_lengths": readout_coupling_lengths,
-        "readout_short_type": "galvanic_term1_0",
+        "readout_short_type": "galvanic_term2_0",
         "crop_box": crop_box,
-        "source_cell": "sqnl_chip_v1.SqnlSingle",
+        "source_cell": "sqnl_chip_v2.SqnlSingleV2",
         "eigenmode_mode": mode,
+        "qubit_spacing_y": V2_QUBIT_SPACING_Y,
         **target_metadata(args.junction_capacitance_ff),
     }
 
@@ -308,14 +307,14 @@ def copy_relevant_refpoints(simulation, refpoints):
 
 def make_simulation(layout, args, mode):
     source_cell, selected_length, readout_res_lengths, readout_coupling_lengths = (
-        build_sqnl_chip_v1_cell(layout, args)
+        build_sqnl_chip_v2_cell(layout, args)
     )
     cell = static_cell_for_simulation(source_cell)
     refpoints = get_cell_refpoints(cell)
     crop_box = crop_box_for_chip_v1(refpoints, args)
     feedline_suffix = "" if args.use_feedline else "_nofeedline"
     name = (
-        f"sqnl_chip_v1_eigen_{mode}_len_{format_value(selected_length)}"
+        f"sqnl_chip_v2_eigen_{mode}_len_{format_value(selected_length)}"
         f"_cpl_{format_value(args.coupling_length)}_gap_{format_value(args.gap)}"
         f"{feedline_suffix}"
     )
@@ -435,9 +434,13 @@ def run_smoke_check(simulation, export_path, mode, settings, args):
         assert abs(tls_thickness) < 1e-12
 
     metadata = parameters["extra_json_data"]
-    assert metadata["source_cell"] == "sqnl_chip_v1.SqnlSingle"
+    assert metadata["source_cell"] == "sqnl_chip_v2.SqnlSingleV2"
     assert metadata["eigenmode_mode"] == mode
     assert metadata["use_feedline"] == args.use_feedline
+    assert metadata["resonator_length"] == first_chip_default("readout_res_lengths")
+    assert metadata["readout_res_lengths"][0] == first_chip_default("readout_res_lengths")
+    assert metadata["readout_short_type"] == "galvanic_term2_0"
+    assert metadata["qubit_spacing_y"] == V2_QUBIT_SPACING_Y
     assert metadata["sim_junction_type"] == SQNL_DIRECT_LEAD_SIM
     assert metadata["junction_terminal_model"] == JUNCTION_TERMINAL_MODEL
     assert metadata["surrogate_pads_enabled"] is False
@@ -447,12 +450,14 @@ def run_smoke_check(simulation, export_path, mode, settings, args):
     for key in simulation.extra_json_data["junction_refpoints"]:
         assert point_inside_box(simulation.refpoints[key], simulation.box)
 
-    assert readout_short_has_no_open_gap_cap(
-        simulation,
-        0,
-        metadata.get("center_trace_width", 10),
-        metadata.get("gap_width", 6),
-    )
+    assert simulation.refpoints["readout_0_short"].x < simulation.refpoints["qb_0_port_cplr"].x
+    assert simulation.refpoints["readout_0_short"].y < simulation.refpoints["qb_0_port_cplr"].y
+    qubit_lift = (V2_QUBIT_SPACING_Y - V1_QUBIT_SPACING_Y) / 2
+    assert abs(
+        simulation.refpoints["qb_0_port_cplr"].y
+        - simulation.refpoints["readout_0_short"].y
+        - qubit_lift
+    ) < 1e-9
     assert abs(
         simulation.refpoints[simulation.extra_json_data["junction_refpoints"][0]].distance(
             simulation.refpoints[simulation.extra_json_data["junction_refpoints"][1]]
@@ -464,8 +469,7 @@ def run_smoke_check(simulation, export_path, mode, settings, args):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["fast", "pyepr", "both"], default="fast")
-    parser.add_argument("--length", type=float)
+    parser.add_argument("--mode", choices=["fast", "pyepr", "both"], default="pyepr")
     parser.add_argument("--coupling-length", type=float, default=first_chip_default("readout_coupling_lengths"))
     parser.add_argument("--gap", type=float, default=chip_default("readout_feedline_gap"))
     parser.add_argument("--turn-radius", type=float, default=chip_default("readout_turn_radius"))

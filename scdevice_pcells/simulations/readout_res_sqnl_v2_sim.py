@@ -1,4 +1,4 @@
-"""HFSS S-parameter export for the SQNL chip v1 in-situ readout resonator."""
+"""HFSS S-parameter export for the SQNL chip v2 in-situ readout resonator."""
 
 import argparse
 import contextlib
@@ -17,7 +17,8 @@ from kqcircuits.simulations.export.simulation_export import export_simulation_oa
 from kqcircuits.simulations.port import EdgePort, InternalPort
 from kqcircuits.simulations.post_process import PostProcess
 
-from scdevice_pcells.chips.sqnl_chip_v1 import SqnlSingle
+from scdevice_pcells.chips.sqnl_chip_v2 import SqnlSingleV2 as SqnlSingle
+from scdevice_pcells.chips.sqnl_chip_v2 import V1_QUBIT_SPACING_Y, V2_QUBIT_SPACING_Y
 from scdevice_pcells.junctions import SQNL_DIRECT_LEAD_SIM
 from scdevice_pcells.simulations.export_paths import (
     add_kq_post_process_tool_metadata,
@@ -107,7 +108,8 @@ def point_inside_box(point, box):
     return box.left <= point.x <= box.right and box.bottom <= point.y <= box.top
 
 
-def build_sqnl_chip_v1_cell(layout, args, resonator_length, coupling_length, gap):
+def build_sqnl_chip_v2_cell(layout, args, resonator_length, coupling_length, gap):
+    resonator_length = first_chip_default("readout_res_lengths")
     readout_res_lengths = [resonator_length]
     readout_coupling_lengths = [coupling_length]
     cell = SqnlSingle.create(
@@ -167,12 +169,13 @@ def make_readout_metadata(
         "gap_width": args.gap_width,
         "readout_res_lengths": readout_res_lengths,
         "readout_coupling_lengths": readout_coupling_lengths,
-        "readout_short_type": "galvanic_term1_0",
+        "readout_short_type": "galvanic_term2_0",
         "crop_box": crop_box,
-        "source_cell": "sqnl_chip_v1.SqnlSingle",
+        "source_cell": "sqnl_chip_v2.SqnlSingleV2",
         "simulation_type": "in_situ_readout_feedline_2port_sparameter",
         "sim_junction_type": SQNL_DIRECT_LEAD_SIM,
         "circle_fit_included": False,
+        "qubit_spacing_y": V2_QUBIT_SPACING_Y,
     }
 
 
@@ -189,7 +192,7 @@ def copy_relevant_refpoints(simulation, refpoints):
 
 
 def make_simulation(layout, args, resonator_length, coupling_length, gap):
-    source_cell, readout_res_lengths, readout_coupling_lengths = build_sqnl_chip_v1_cell(
+    source_cell, readout_res_lengths, readout_coupling_lengths = build_sqnl_chip_v2_cell(
         layout,
         args,
         resonator_length,
@@ -200,12 +203,12 @@ def make_simulation(layout, args, resonator_length, coupling_length, gap):
     refpoints = get_cell_refpoints(cell)
     crop_box = crop_box_for_chip_v1(refpoints, args)
     name = (
-        f"sqnl_chip_v1_ro_s21_len_{format_value(resonator_length)}"
+        f"sqnl_chip_v2_ro_s21_len_{format_value(readout_res_lengths[0])}"
         f"_cpl_{format_value(coupling_length)}_gap_{format_value(gap)}"
     )
     metadata = make_readout_metadata(
         args,
-        resonator_length,
+        readout_res_lengths[0],
         coupling_length,
         gap,
         readout_res_lengths,
@@ -292,31 +295,41 @@ def run_smoke_check(simulations, export_path, args):
         assert edge_ports[1].signal_location.y == chip_default("feedline_y")
 
         metadata = exported["parameters"]["extra_json_data"]
-        assert metadata["source_cell"] == "sqnl_chip_v1.SqnlSingle"
+        assert metadata["source_cell"] == "sqnl_chip_v2.SqnlSingleV2"
         assert metadata["simulation_type"] == "in_situ_readout_feedline_2port_sparameter"
         assert metadata["circle_fit_included"] is False
         assert metadata["resonator_index"] == 0
-        assert metadata["readout_res_lengths"][0] == metadata["resonator_length"]
+        assert metadata["resonator_length"] == first_chip_default("readout_res_lengths")
+        assert metadata["readout_res_lengths"][0] == first_chip_default("readout_res_lengths")
         assert metadata["readout_coupling_lengths"][0] == metadata["coupling_length"]
-        assert metadata["readout_short_type"] == "galvanic_term1_0"
+        assert metadata["readout_short_type"] == "galvanic_term2_0"
+        assert metadata["qubit_spacing_y"] == V2_QUBIT_SPACING_Y
 
         for key in ("qb_0_port_cplr", "qb_0_base", "readout_0_short"):
             assert key in simulation.refpoints, f"Missing refpoint: {key}."
             assert point_inside_box(simulation.refpoints[key], simulation.box)
+        assert simulation.refpoints["readout_0_short"].x < simulation.refpoints["qb_0_port_cplr"].x
+        assert simulation.refpoints["readout_0_short"].y < simulation.refpoints["qb_0_port_cplr"].y
+        qubit_lift = (V2_QUBIT_SPACING_Y - V1_QUBIT_SPACING_Y) / 2
+        assert abs(
+            simulation.refpoints["qb_0_port_cplr"].y
+            - simulation.refpoints["readout_0_short"].y
+            - qubit_lift
+        ) < 1e-9
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lengths", default=str(first_chip_default("readout_res_lengths")))
+    parser.add_argument("--lengths", default=str(first_chip_default("readout_res_lengths")), help=argparse.SUPPRESS)
     parser.add_argument("--coupling-lengths", default=str(first_chip_default("readout_coupling_lengths")))
     parser.add_argument("--gaps", default=str(chip_default("readout_feedline_gap")))
-    parser.add_argument("--frequency", type=float, default=6.009)
-    parser.add_argument("--sweep-start", type=float, default=5.8)
-    parser.add_argument("--sweep-end", type=float, default=6.2)
-    parser.add_argument("--sweep-count", type=int, default=2001)
-    parser.add_argument("--sweep-type", choices=["interpolating", "discrete", "fast"], default="discrete")
+    parser.add_argument("--frequency", type=float, default=6.00)
+    parser.add_argument("--sweep-start", type=float, default=5.95)
+    parser.add_argument("--sweep-end", type=float, default=6.05)
+    parser.add_argument("--sweep-count", type=int, default=501)
+    parser.add_argument("--sweep-type", choices=["interpolating", "discrete", "fast"], default="fast")
     parser.add_argument("--max-delta-s", type=float, default=0.01)
-    parser.add_argument("--maximum-passes", type=int, default=10)
+    parser.add_argument("--maximum-passes", type=int, default=8)
     parser.add_argument("--crop-half-width", type=float, default=1000)
     parser.add_argument("--crop-feedline-margin", type=float, default=500)
     parser.add_argument("--crop-qubit-margin", type=float, default=800)
