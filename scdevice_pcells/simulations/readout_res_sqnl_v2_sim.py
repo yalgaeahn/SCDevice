@@ -135,10 +135,13 @@ def build_sqnl_chip_v2_cell(layout, args, resonator_length, coupling_length, gap
     return cell, readout_res_lengths, readout_coupling_lengths
 
 
-def crop_box_for_chip_v1(refpoints, args):
+def crop_box_for_chip_v2(refpoints, args):
     cplr = refpoints["qb_0_port_cplr"]
     base = refpoints["qb_0_base"]
-    left = cplr.x - args.crop_half_width
+    readout_short = refpoints.get("readout_0_short", cplr)
+    readout_margin = max(args.crop_readout_margin, args.meander_width / 2 + args.turn_radius)
+
+    left = min(cplr.x - args.crop_half_width, readout_short.x - readout_margin)
     right = cplr.x + args.crop_half_width
 
     if left < refpoints["W_port"].x or right > refpoints["E_port"].x:
@@ -201,7 +204,7 @@ def make_simulation(layout, args, resonator_length, coupling_length, gap):
     )
     cell = static_cell_for_simulation(source_cell)
     refpoints = get_cell_refpoints(cell)
-    crop_box = crop_box_for_chip_v1(refpoints, args)
+    crop_box = crop_box_for_chip_v2(refpoints, args)
     name = (
         f"sqnl_chip_v2_ro_s21_len_{format_value(readout_res_lengths[0])}"
         f"_cpl_{format_value(coupling_length)}_gap_{format_value(gap)}"
@@ -331,6 +334,7 @@ def parse_args():
     parser.add_argument("--max-delta-s", type=float, default=0.01)
     parser.add_argument("--maximum-passes", type=int, default=8)
     parser.add_argument("--crop-half-width", type=float, default=1000)
+    parser.add_argument("--crop-readout-margin", type=float, default=700)
     parser.add_argument("--crop-feedline-margin", type=float, default=500)
     parser.add_argument("--crop-qubit-margin", type=float, default=800)
     parser.add_argument("--center-trace-width", type=float, default=chip_default("a"))
