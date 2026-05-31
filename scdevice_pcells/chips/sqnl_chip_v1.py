@@ -57,7 +57,7 @@ class SqnlSingle(Chip):
         pdt.TypeList, "Readout resonator lengths", [4900]
     )
     readout_coupling_lengths = Param(
-        pdt.TypeList, "Readout resonator feedline coupling lengths", [400] #400
+        pdt.TypeList, "Readout resonator feedline coupling lengths", [700] #400 for q 6000
     )
     readout_feedline_gap = Param(
         pdt.TypeDouble,

@@ -64,12 +64,12 @@ class SqnlSingleV2(Chip):
         pdt.TypeList, "Readout resonator lengths", [4900]
     )
     readout_coupling_lengths = Param(
-        pdt.TypeList, "Readout resonator feedline coupling lengths", [400]#was 400
+        pdt.TypeList, "Readout resonator feedline coupling lengths", [500]#was 400
     )
     readout_feedline_gap = Param(
         pdt.TypeDouble,
         "Centerline distance between feedline and readout resonator coupling section",
-        23,
+        25,
         unit="um",
     )
     readout_turn_radius = Param(pdt.TypeDouble, "Readout resonator turn radius", 50, unit="um")
