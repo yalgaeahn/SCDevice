@@ -29,8 +29,18 @@ from kqcircuits.elements.waveguide_coplanar_splitter import WaveguideCoplanarSpl
 from kqcircuits.pya_resolver import pya
 from kqcircuits.util.coupler_lib import cap_params
 from kqcircuits.util.parameters import Param, pdt, add_parameters_from
-from kqcircuits.junctions.junction import Junction
 from scdevice_pcells.junctions import SQNL_MANHATTAN_SINGLE_JUNCTION
+
+
+_DOUBLE_PADS_SQNL_DRAWING_PARAMETERS = (
+    "junction_type",
+    "include_contact_pads",
+    "finger_overlap",
+    "pad_height",
+    "pad_width",
+    "pad_rounding_radius",
+    "x_offset",
+)
 
 
 def _get_num_meanders(meander_length, turn_radius, meander_min_width):
@@ -39,7 +49,11 @@ def _get_num_meanders(meander_length, turn_radius, meander_min_width):
     return int((meander_length - turn_radius * (pi - 2)) / (meander_min_width + turn_radius * (pi - 2)))
 
 
-@add_parameters_from(Junction, junction_type=SQNL_MANHATTAN_SINGLE_JUNCTION)
+@add_parameters_from(
+    DoublePadsSQNL,
+    *_DOUBLE_PADS_SQNL_DRAWING_PARAMETERS,
+    junction_type=SQNL_MANHATTAN_SINGLE_JUNCTION,
+)
 class SqnlSingle(Chip):
     """The PCell declaration for a single-qubit SQNL chip.
 
@@ -203,6 +217,12 @@ class SqnlSingle(Chip):
             DoublePadsSQNL,
             junction_type=self.junction_type,
             drive_position=[-450, 0],
+            finger_overlap=self.finger_overlap,
+            include_contact_pads=self.include_contact_pads,
+            pad_width=self.pad_width,
+            pad_height=self.pad_height,
+            pad_rounding_radius=self.pad_rounding_radius,
+            x_offset=self.x_offset,
         )
         qubit_spacing_y = 2600  # shortest y-distance between qubit centers on different sides of the feedline
         qubits_center_x = 5e3 + 400  # the x-coordinate around which qubits are centered

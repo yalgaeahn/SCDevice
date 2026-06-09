@@ -24,6 +24,9 @@ from kqcircuits.pya_resolver import pya
 from kqcircuits.util.parameters import Param, pdt
 
 
+TAPER_ATTACH_FINGER_OVERLAP = 1.0
+
+
 class SqnlManhattanSingleJunctionV2(Junction):
     """Lead-only SCDevice V2 copy of the KQCircuits Manhattan single-junction PCell."""
 
@@ -36,6 +39,9 @@ class SqnlManhattanSingleJunctionV2(Junction):
     include_base_metal_addition = Param(
         pdt.TypeBoolean, "Ignored in lead-only V2.", False
     )
+    include_contact_pads = Param(
+        pdt.TypeBoolean, "Include SIS contact pads.", True
+    )
     shadow_margin = Param(
         pdt.TypeDouble, "Shadow layer margin near the the pads.", 0.5, unit="um"
     )
@@ -47,16 +53,16 @@ class SqnlManhattanSingleJunctionV2(Junction):
         pdt.TypeBoolean, "Move the junction lead offset to the other lead", False
     )
     finger_overlap = Param(
-        pdt.TypeDouble, "Length of fingers inside the pads.", 1.0, unit="um"
+        pdt.TypeDouble, "Length of fingers inside the pads.", 3.0, unit="um"
     )
     height = Param(pdt.TypeDouble, "Height of the junction element.", 22.0, unit="um")
     width = Param(pdt.TypeDouble, "Width of the junction element.", 22.0, unit="um")
-    pad_height = Param(pdt.TypeDouble, "Height of the junction pad.", 6.0, unit="um")
-    pad_width = Param(pdt.TypeDouble, "Width of the junction pad.", 12.0, unit="um")
+    pad_height = Param(pdt.TypeDouble, "Height of the junction pad.", 3.0, unit="um")
+    pad_width = Param(pdt.TypeDouble, "Width of the junction pad.", 3.0, unit="um")
     pad_to_pad_separation = Param(pdt.TypeDouble, "Pad separation.", 6.0, unit="um")
-    x_offset = Param(pdt.TypeDouble, "Horizontal junction offset.", 0, unit="um")
+    x_offset = Param(pdt.TypeDouble, "Horizontal junction offset.", -1, unit="um")
     pad_rounding_radius = Param(
-        pdt.TypeDouble, "Rounding radius of the junction pad.", 0.5, unit="um"
+        pdt.TypeDouble, "Rounding radius of the junction pad.", 1.0, unit="um"
     )
 
     def build(self):
@@ -66,10 +72,42 @@ class SqnlManhattanSingleJunctionV2(Junction):
         self._make_junction(
             pya.DPoint(0, self.height / 2 + 2.8), self.height / 2 - 5, 0
         )
+
+        if self.include_contact_pads:
+            self._produce_contact_pads()
+
         self._produce_shadow_shapes()
         self._produce_ground_metal_shapes()
         self._produce_ground_grid_avoidance()
         self._add_refpoints()
+
+    def _produce_contact_pads(self):
+        """Produce rounded SIS contact pads centered on drawn lead ends."""
+        rounding_params = {
+            "rinner": self.pad_rounding_radius,
+            "router": self.pad_rounding_radius,
+            "n": 64,
+        }
+
+        junction_shapes = []
+        for center in (self._contact_pad_bottom, self._contact_pad_top):
+            self._round_corners_and_append(
+                self._contact_pad_polygon(center), junction_shapes, rounding_params
+            )
+        self._add_shapes(junction_shapes, "SIS_junction")
+
+    def _contact_pad_polygon(self, center, margin=0):
+        """Return a rectangular contact pad centered at ``center``."""
+        half_width = self.pad_width / 2 + margin
+        half_height = self.pad_height / 2 + margin
+        return pya.DPolygon(
+            [
+                pya.DPoint(center.x - half_width, center.y - half_height),
+                pya.DPoint(center.x + half_width, center.y - half_height),
+                pya.DPoint(center.x + half_width, center.y + half_height),
+                pya.DPoint(center.x - half_width, center.y + half_height),
+            ]
+        )
 
     def _make_junction(self, top_corner, b_corner_y, finger_margin=0):
         """Create junction fingers and add them to some SIS layer."""
@@ -82,9 +120,9 @@ class SqnlManhattanSingleJunctionV2(Junction):
         else:
             ddb += self.offset_compensation * sqrt(0.5)
         fo = self.finger_overshoot * sqrt(0.5) - 1.1
-        pl = self.finger_overlap * sqrt(0.5) + 0.2
 
-        def finger_points(size):
+        def finger_points(size, finger_overlap):
+            pl = finger_overlap * sqrt(0.5) + 0.2
             return [
                 pya.DPoint(top_corner.x + pl, top_corner.y + size + pl),
                 pya.DPoint(top_corner.x + size + pl, top_corner.y + pl),
@@ -92,19 +130,24 @@ class SqnlManhattanSingleJunctionV2(Junction):
                 pya.DPoint(jx - fo - size, jy - fo),
             ]
 
-        finger_bottom = pya.DTrans(-jx, -jy + self.x_offset) * pya.DPolygon(
-            finger_points(ddb)
-        )
-        finger_top = pya.DTrans(-jx + self.x_offset, -jy) * pya.DPolygon(
-            finger_points(ddt)
-        )
+        def lead_polygons(finger_overlap, x_offset):
+            finger_bottom = pya.DTrans(-jx, -jy + x_offset) * pya.DPolygon(
+                finger_points(ddb, finger_overlap)
+            )
+            finger_top = pya.DTrans(-jx + x_offset, -jy) * pya.DPolygon(
+                finger_points(ddt, finger_overlap)
+            )
+            return [
+                pya.DTrans(jx - finger_margin, jy) * finger_top,
+                pya.DTrans(0, False, jx - 2 * top_corner.x, jy) * finger_top,
+                pya.DTrans(3, False, jx - finger_margin, jy + 2.2)
+                * finger_bottom,
+                pya.DTrans(3, False, jx - 2 * top_corner.x, jy + 2.2)
+                * finger_bottom,
+            ]
 
-        junction_polygons = [
-            pya.DTrans(jx - finger_margin, jy) * finger_top,
-            pya.DTrans(0, False, jx - 2 * top_corner.x, jy) * finger_top,
-            pya.DTrans(3, False, jx - finger_margin, jy + 2.2) * finger_bottom,
-            pya.DTrans(3, False, jx - 2 * top_corner.x, jy + 2.2) * finger_bottom,
-        ]
+        junction_polygons = lead_polygons(self.finger_overlap, self.x_offset)
+        attach_polygons = lead_polygons(TAPER_ATTACH_FINGER_OVERLAP, 0)
 
         junction_region = pya.Region(
             [polygon.to_itype(self.layout.dbu) for polygon in junction_polygons]
@@ -114,9 +157,15 @@ class SqnlManhattanSingleJunctionV2(Junction):
 
         self._junction_region = junction_region
         self._junction_bounds = junction_region.bbox().to_dtype(self.layout.dbu)
-        self._lead_top = self._outer_short_edge_center(junction_polygons, upper=True)
+        self._lead_top = self._outer_short_edge_center(attach_polygons, upper=True)
         self._lead_bottom = self._outer_short_edge_center(
-            junction_polygons, upper=False
+            attach_polygons, upper=False
+        )
+        # Contact pads and qubit tapers use the fixed logical attach geometry;
+        # only the drawn fingers grow with finger_overlap.
+        self._contact_pad_top = pya.DPoint(self._lead_top.x, self._lead_top.y)
+        self._contact_pad_bottom = pya.DPoint(
+            self._lead_bottom.x, self._lead_bottom.y
         )
         self.refpoints["c"] = pya.DPoint(jx + 1.1 - finger_margin, jy + 1.1)
 
@@ -150,6 +199,12 @@ class SqnlManhattanSingleJunctionV2(Junction):
             raise ValueError("Could not determine junction lead attach refpoint.")
         return best_center
 
+    def _add_shapes(self, shapes, layer):
+        """Merge shapes into a region and add it to layer."""
+        if not shapes:
+            return
+        self.cell.shapes(self.get_layer(layer)).insert(pya.Region(shapes).merged())
+
     def _add_refpoints(self):
         """Add KQ-compatible refpoints at the direct lead attach points."""
         self.refpoints["attach_island_1"] = pya.DPoint(
@@ -164,17 +219,24 @@ class SqnlManhattanSingleJunctionV2(Junction):
         self.add_port("common", pya.DPoint(self._lead_top.x, self._lead_top.y))
 
     def _produce_shadow_shapes(self):
-        """Produce a simple shadow envelope around the lead-only junction."""
-        self.cell.shapes(self.get_layer("SIS_shadow")).insert(
-            self._expanded_box(self._junction_bounds, self.shadow_margin)
-        )
+        """Produce rounded shadow envelopes around the fixed contact pads."""
+        rounding_params = {
+            "rinner": self.pad_rounding_radius,
+            "router": self.pad_rounding_radius,
+            "n": 64,
+        }
+
+        shadow_shapes = []
+        for center in (self._contact_pad_bottom, self._contact_pad_top):
+            self._round_corners_and_append(
+                self._contact_pad_polygon(center, self.shadow_margin),
+                shadow_shapes,
+                rounding_params,
+            )
+        self._add_shapes(shadow_shapes, "SIS_shadow")
 
     def _produce_ground_metal_shapes(self):
-        """Produce only base-metal gap clearance around the lead-only junction."""
-        if self.include_base_metal_gap:
-            self.cell.shapes(self.get_layer("base_metal_gap_wo_grid")).insert(
-                self._expanded_box(self._junction_bounds, self.shadow_margin)
-            )
+        """Leave base-metal gap ownership to the parent qubit geometry."""
 
     def _produce_ground_grid_avoidance(self):
         """Add ground grid avoidance around the lead-only junction."""
@@ -191,3 +253,12 @@ class SqnlManhattanSingleJunctionV2(Junction):
             box.right + margin,
             box.top + margin,
         )
+
+    def _round_corners_and_append(self, polygon, polygon_list, rounding_params):
+        """Round polygon corners, convert to integer coordinates, and append."""
+        polygon = polygon.round_corners(
+            rounding_params["rinner"],
+            rounding_params["router"],
+            rounding_params["n"],
+        )
+        polygon_list.append(polygon.to_itype(self.layout.dbu))
