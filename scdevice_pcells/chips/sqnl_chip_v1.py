@@ -223,7 +223,7 @@ class SqnlSingle(Chip):
             pad_height=self.pad_height,
             pad_rounding_radius=self.pad_rounding_radius,
             x_offset=self.x_offset,
-        )
+         )
         qubit_spacing_y = 2600  # shortest y-distance between qubit centers on different sides of the feedline
         qubits_center_x = 5e3 + 400  # the x-coordinate around which qubits are centered
         y_a = float(self.feedline_y) + qubit_spacing_y / 2

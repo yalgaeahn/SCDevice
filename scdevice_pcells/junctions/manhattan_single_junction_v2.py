@@ -30,6 +30,13 @@ TAPER_ATTACH_FINGER_OVERLAP = 1.0
 class SqnlManhattanSingleJunctionV2(Junction):
     """Lead-only SCDevice V2 copy of the KQCircuits Manhattan single-junction PCell."""
 
+    junction_width = Param(
+        pdt.TypeDouble,
+        "Junction width for code generated element",
+        0.2,
+        unit="um",
+        docstring="Junction width (only used for code generated element)",
+    )
     finger_overshoot = Param(
         pdt.TypeDouble, "Length of fingers after the junction.", 1.0, unit="um"
     )
