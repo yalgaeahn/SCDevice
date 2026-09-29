@@ -154,14 +154,23 @@ Expected structure:
 
 - `origin`: your fork of `KQCircuits`
 - `upstream`: `https://github.com/iqm-finland/KQCircuits.git`
+- maintenance branch: `scdevice-patches` on the fork
 
-Typical upstream update flow:
+The full maintenance procedure, including initial setup, upstream synchronization,
+testing, push order, useful checks, and recovery, is documented in
+[docs/kqcircuits-maintenance.md](docs/kqcircuits-maintenance.md).
+
+Short upstream update flow:
 
 ```bash
+git -C KQCircuits switch scdevice-patches
 git -C KQCircuits fetch upstream
-git -C KQCircuits switch yalgaeahn/local-work
 git -C KQCircuits merge upstream/main
+git -C KQCircuits push origin scdevice-patches
+
 git add KQCircuits
+git commit -m "Update KQCircuits from upstream"
+git push origin main
 ```
 
 Typical local change flow when both repos are involved:
@@ -170,7 +179,7 @@ Typical local change flow when both repos are involved:
 git -C KQCircuits status
 git -C KQCircuits add <files>
 git -C KQCircuits commit -m "Describe KQCircuits change"
-git -C KQCircuits push -u origin yalgaeahn/local-work
+git -C KQCircuits push origin scdevice-patches
 
 git add KQCircuits
 git add <SCDevice files>
@@ -216,7 +225,7 @@ That means `SCDevice` sees local changes inside the submodule working tree. The 
 git -C KQCircuits status
 git -C KQCircuits add <files>
 git -C KQCircuits commit -m "Describe submodule change"
-git -C KQCircuits push -u origin yalgaeahn/local-work
+git -C KQCircuits push origin scdevice-patches
 
 git status
 git add KQCircuits
