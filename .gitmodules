@@ -1,3 +1,4 @@
 [submodule "KQCircuits"]
 	path = KQCircuits
 	url = https://github.com/yalgaeahn/KQCircuits.git
+	branch = scdevice-patches
